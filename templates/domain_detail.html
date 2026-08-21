@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+{% block page_title %}Domain Details{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <a href="/domains" class="text-decoration-none text-muted"><i class="bi bi-arrow-left me-1"></i> Back to Domains</a>
+</div>
+
+<div class="card mb-4 bg-white border-0 shadow-sm">
+    <div class="card-body p-4">
+        <div class="row align-items-center">
+            <div class="col-md-8">
+                <div class="d-flex align-items-center mb-2">
+                    <h2 class="fw-bold mb-0 me-3">{{ domain.name }}</h2>
+                    <span class="badge badge-pill badge-{{ domain.status|lower }}">{{ domain.status }}</span>
+                </div>
+                <p class="text-muted mb-0">
+                    <i class="bi bi-clock me-1"></i> Last Checked: {{ domain.last_checked.strftime('%Y-%m-%d %H:%M') if domain.last_checked else 'Never' }}
+                </p>
+                <div class="mt-3">
+                    {% if domain.campaign_ready %}
+                    <span class="text-success fw-medium"><i class="bi bi-check-circle-fill me-1"></i> Campaign Ready</span>
+                    {% else %}
+                    <span class="text-danger fw-medium"><i class="bi bi-x-circle-fill me-1"></i> Not Campaign Ready</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="col-md-4 d-flex justify-content-md-end justify-content-start mt-3 mt-md-0">
+                <div class="score-circle {% if domain.health_score < 70 %}score-danger{% elif domain.health_score < 90 %}score-warning{% endif %}" style="--score: {{ domain.health_score }};">
+                    <span>{{ domain.health_score }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% set check = domain.checks[-1] if domain.checks else None %}
+
+<div class="row g-4 mb-4">
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header bg-white pb-0 border-0 pt-4">
+                <h5 class="fw-bold"><i class="bi bi-shield-lock text-primary me-2"></i> Authentication</h5>
+            </div>
+            <div class="card-body">
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                        <span class="fw-medium">SPF Record</span>
+                        {% if check %}
+                        <span class="badge badge-pill badge-{{ check.spf_status|lower }}">{{ check.spf_status }}</span>
+                        {% else %}
+                        <span class="badge badge-pill badge-unknown">UNKNOWN</span>
+                        {% endif %}
+                    </li>
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                        <span class="fw-medium">DKIM Record</span>
+                        {% if check %}
+                        <span class="badge badge-pill badge-{{ check.dkim_status|lower }}">{{ check.dkim_status }}</span>
+                        {% else %}
+                        <span class="badge badge-pill badge-unknown">UNKNOWN</span>
+                        {% endif %}
+                    </li>
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                        <span class="fw-medium">DMARC Record</span>
+                        {% if check %}
+                        <span class="badge badge-pill badge-{{ check.dmarc_status|lower }}">{{ check.dmarc_status }}</span>
+                        {% else %}
+                        <span class="badge badge-pill badge-unknown">UNKNOWN</span>
+                        {% endif %}
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header bg-white pb-0 border-0 pt-4">
+                <h5 class="fw-bold"><i class="bi bi-diagram-3 text-info me-2"></i> DNS Records</h5>
+            </div>
+            <div class="card-body">
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item px-0">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="fw-medium">MX Records</span>
+                            {% if check and check.mx_health == 'PASS' %}
+                            <span class="text-success"><i class="bi bi-check-circle-fill"></i> PASS</span>
+                            {% else %}
+                            <span class="text-danger"><i class="bi bi-x-circle-fill"></i> FAIL</span>
+                            {% endif %}
+                        </div>
+                        <small class="text-muted text-break d-block">{{ check.mx_record or 'None' }}</small>
+                    </li>
+                    <li class="list-group-item px-0">
+                        <span class="fw-medium">A Records</span>
+                        <small class="text-muted text-break d-block">{{ check.a_record or 'None' }}</small>
+                    </li>
+                    <li class="list-group-item px-0">
+                        <span class="fw-medium">AAAA Records</span>
+                        <small class="text-muted text-break d-block">{{ check.aaaa_record or 'None' }}</small>
+                    </li>
+                    <li class="list-group-item px-0">
+                        <span class="fw-medium">NS Records</span>
+                        <small class="text-muted text-break d-block">{{ check.ns_record or 'None' }}</small>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header bg-white pb-0 border-0 pt-4">
+                <h5 class="fw-bold"><i class="bi bi-shield-check text-success me-2"></i> Security (Advanced)</h5>
+            </div>
+            <div class="card-body">
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                        <span class="fw-medium">DNSSEC</span>
+                        {% if check %}
+                        <span class="badge badge-pill badge-{{ check.dnssec_status|lower }}">{{ check.dnssec_status }}</span>
+                        {% else %}
+                        <span class="badge badge-pill badge-unknown">UNKNOWN</span>
+                        {% endif %}
+                    </li>
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                        <span class="fw-medium">MTA-STS</span>
+                        {% if check %}
+                        <span class="badge badge-pill badge-{{ check.mta_sts_status|lower }}">{{ check.mta_sts_status }}</span>
+                        {% else %}
+                        <span class="badge badge-pill badge-unknown">UNKNOWN</span>
+                        {% endif %}
+                    </li>
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                        <span class="fw-medium">TLS-RPT</span>
+                        {% if check %}
+                        <span class="badge badge-pill badge-{{ check.tls_rpt_status|lower }}">{{ check.tls_rpt_status }}</span>
+                        {% else %}
+                        <span class="badge badge-pill badge-unknown">UNKNOWN</span>
+                        {% endif %}
+                    </li>
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                        <span class="fw-medium">BIMI</span>
+                        {% if check %}
+                        <span class="badge badge-pill badge-{{ check.bimi_status|lower }}">{{ check.bimi_status }}</span>
+                        {% else %}
+                        <span class="badge badge-pill badge-unknown">UNKNOWN</span>
+                        {% endif %}
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header bg-white pb-0 border-0 pt-4">
+                <h5 class="fw-bold"><i class="bi bi-star text-warning me-2"></i> Reputation</h5>
+            </div>
+            <div class="card-body">
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                        <span class="fw-medium">Blacklists</span>
+                        {% if check %}
+                        <span class="badge badge-pill badge-{{ check.blacklist_status|lower }}">{{ check.blacklist_status }}</span>
+                        {% else %}
+                        <span class="badge badge-pill badge-unknown">UNKNOWN</span>
+                        {% endif %}
+                    </li>
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                        <span class="fw-medium">SMTP Status</span>
+                        {% if check %}
+                        <span class="badge badge-pill badge-{{ check.smtp_status|lower }}">{{ check.smtp_status }}</span>
+                        {% else %}
+                        <span class="badge badge-pill badge-unknown">UNKNOWN</span>
+                        {% endif %}
+                    </li>
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                        <span class="fw-medium">MX Health</span>
+                        {% if check %}
+                        <span class="badge badge-pill badge-{{ check.mx_health|lower }}">{{ check.mx_health }}</span>
+                        {% else %}
+                        <span class="badge badge-pill badge-unknown">UNKNOWN</span>
+                        {% endif %}
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<h4 class="fw-bold mb-3 mt-5">Detected Issues</h4>
+<div class="card shadow-sm border-0">
+    <div class="card-body p-0">
+        <div class="list-group list-group-flush rounded">
+            {% for issue in domain.issues %}
+            <div class="list-group-item p-4">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <h6 class="fw-bold mb-0">
+                        <span class="badge badge-pill badge-{{ 'critical' if issue.severity == 'CRITICAL' else 'high' if issue.severity == 'HIGH' else 'medium' if issue.severity == 'MEDIUM' else 'low' }} me-2">{{ issue.severity }}</span>
+                        {{ issue.issue_type }}
+                    </h6>
+                    <small class="text-muted">{{ issue.detected_at.strftime('%Y-%m-%d') if issue.detected_at else 'N/A' }}</small>
+                </div>
+                <p class="text-muted mb-2">{{ issue.description }}</p>
+                <div class="bg-light p-3 rounded mt-3 border-start border-4 border-primary">
+                    <strong>Recommendation:</strong> {{ issue.recommendation }}
+                </div>
+            </div>
+            {% else %}
+            <div class="p-5 text-center text-muted">
+                <i class="bi bi-check-circle display-4 text-success d-block mb-3"></i>
+                <h5>No issues detected</h5>
+                <p class="mb-0">This domain is fully optimized.</p>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}

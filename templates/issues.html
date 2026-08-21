@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block page_title %}Issues & Recommendations{% endblock %}
+
+{% block content %}
+<div class="card mb-4">
+    <div class="card-body">
+        <ul class="nav nav-pills" id="issuesTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active rounded-pill px-4 me-2" data-bs-toggle="pill" data-bs-target="#all">All Issues</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link rounded-pill px-4 me-2 text-danger" data-bs-toggle="pill" data-bs-target="#open"><i class="bi bi-exclamation-circle me-1"></i> Open</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link rounded-pill px-4 text-success" data-bs-toggle="pill" data-bs-target="#resolved"><i class="bi bi-check-circle me-1"></i> Resolved</button>
+            </li>
+        </ul>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="bg-light">
+                    <tr>
+                        <th class="ps-4">Severity</th>
+                        <th>Asset</th>
+                        <th>Type</th>
+                        <th>Description</th>
+                        <th>Recommendation</th>
+                        <th>Status</th>
+                        <th>Detected Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for issue in issues %}
+                    <tr>
+                        <td class="ps-4">
+                            {% if issue.severity == 'CRITICAL' %}
+                            <span class="badge bg-danger rounded-pill px-3 py-2"><i class="bi bi-exclamation-octagon me-1"></i> Critical</span>
+                            {% elif issue.severity == 'HIGH' %}
+                            <span class="badge bg-warning text-dark rounded-pill px-3 py-2"><i class="bi bi-exclamation-triangle me-1"></i> High</span>
+                            {% elif issue.severity == 'MEDIUM' %}
+                            <span class="badge bg-info text-dark rounded-pill px-3 py-2">Medium</span>
+                            {% else %}
+                            <span class="badge bg-secondary rounded-pill px-3 py-2">Low</span>
+                            {% endif %}
+                        </td>
+                        <td class="fw-bold">
+                            {% if issue.domain %}
+                            <i class="bi bi-globe text-muted me-1"></i> <a href="/domains/{{ issue.domain.id }}" class="text-dark">{{ issue.domain.name }}</a>
+                            {% elif issue.mailbox %}
+                            <i class="bi bi-envelope text-muted me-1"></i> <a href="/mailboxes/{{ issue.mailbox.id }}" class="text-dark">{{ issue.mailbox.email }}</a>
+                            {% endif %}
+                        </td>
+                        <td>{{ issue.issue_type }}</td>
+                        <td class="text-muted" style="max-width: 250px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{{ issue.description }}">{{ issue.description }}</td>
+                        <td class="text-muted" style="max-width: 250px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{{ issue.recommendation }}">{{ issue.recommendation }}</td>
+                        <td>
+                            {% if issue.status == 'OPEN' %}
+                            <span class="badge badge-pill badge-critical">Open</span>
+                            {% else %}
+                            <span class="badge badge-pill badge-healthy">Resolved</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-muted small">{{ issue.detected_at.strftime('%Y-%m-%d') if issue.detected_at else 'N/A' }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% if not issues %}
+                    <tr>
+                        <td colspan="7" class="text-center text-muted py-5">
+                            <i class="bi bi-check-circle display-4 text-success d-block mb-3"></i>
+                            No issues detected!
+                        </td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

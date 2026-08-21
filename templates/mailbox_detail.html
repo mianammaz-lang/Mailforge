@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block page_title %}Mailbox Details{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <a href="/mailboxes" class="text-decoration-none text-muted"><i class="bi bi-arrow-left me-1"></i> Back to Mailboxes</a>
+</div>
+
+<div class="card mb-4 bg-white border-0 shadow-sm">
+    <div class="card-body p-4">
+        <div class="row align-items-center">
+            <div class="col-md-8">
+                <div class="d-flex align-items-center mb-2">
+                    <h2 class="fw-bold mb-0 me-3">{{ mailbox.email }}</h2>
+                    <span class="badge badge-pill badge-{{ mailbox.status|lower }}">{{ mailbox.status }}</span>
+                </div>
+                <p class="text-muted mb-0">
+                    <i class="bi bi-clock me-1"></i> Last Checked: {{ mailbox.last_checked.strftime('%Y-%m-%d %H:%M') if mailbox.last_checked else 'Never' }}
+                </p>
+                <div class="mt-3">
+                    {% if mailbox.campaign_ready %}
+                    <span class="text-success fw-medium"><i class="bi bi-check-circle-fill me-1"></i> Campaign Ready</span>
+                    {% else %}
+                    <span class="text-danger fw-medium"><i class="bi bi-x-circle-fill me-1"></i> Not Campaign Ready</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="col-md-4 d-flex justify-content-md-end justify-content-start mt-3 mt-md-0">
+                <div class="score-circle {% if mailbox.health_score < 70 %}score-danger{% elif mailbox.health_score < 90 %}score-warning{% endif %}" style="--score: {{ mailbox.health_score }};">
+                    <span>{{ mailbox.health_score }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% set check = mailbox.checks[-1] if mailbox.checks else None %}
+
+<div class="row g-4 mb-4">
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-header bg-white pb-0 border-0 pt-4">
+                <h5 class="fw-bold"><i class="bi bi-info-circle text-primary me-2"></i> Overview</h5>
+            </div>
+            <div class="card-body">
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                        <span class="fw-medium">Mailforge Status</span>
+                        <span class="badge badge-pill badge-{{ mailbox.mailforge_status|lower }}">{{ mailbox.mailforge_status }}</span>
+                    </li>
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                        <span class="fw-medium">Parent Domain</span>
+                        <a href="/domains/{{ mailbox.domain.id }}" class="text-decoration-none">{{ mailbox.domain.name }}</a>
+                    </li>
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                        <span class="fw-medium">Forwarding</span>
+                        <span class="text-muted">{{ mailbox.forwarding_status or 'Disabled' }}</span>
+                    </li>
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                        <span class="fw-medium">Created Date</span>
+                        <span class="text-muted">{{ mailbox.created_at.strftime('%Y-%m-%d') if mailbox.created_at else 'N/A' }}</span>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-header bg-white pb-0 border-0 pt-4">
+                <h5 class="fw-bold"><i class="bi bi-shield-check text-success me-2"></i> Domain Health Inherited</h5>
+            </div>
+            <div class="card-body text-center d-flex flex-column justify-content-center">
+                <h2 class="display-4 fw-bold {% if mailbox.domain.health_score >= 90 %}text-success{% elif mailbox.domain.health_score >= 70 %}text-warning{% else %}text-danger{% endif %} mb-3">
+                    {{ mailbox.domain.health_score }}%
+                </h2>
+                <p class="text-muted mb-3">Inherited from <a href="/domains/{{ mailbox.domain.id }}">{{ mailbox.domain.name }}</a></p>
+                <div>
+                    <span class="badge badge-pill badge-{{ mailbox.domain.status|lower }}">{{ mailbox.domain.status }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-header bg-white pb-0 border-0 pt-4">
+                <h5 class="fw-bold"><i class="bi bi-check2-all text-info me-2"></i> Mailbox Checks</h5>
+            </div>
+            <div class="card-body">
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                        <span class="fw-medium">SMTP Connectivity</span>
+                        {% if check %}
+                        <span class="badge badge-pill badge-{{ check.smtp_connectivity|lower }}">{{ check.smtp_connectivity }}</span>
+                        {% else %}
+                        <span class="badge badge-pill badge-unknown">UNKNOWN</span>
+                        {% endif %}
+                    </li>
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                        <span class="fw-medium">Verification Status</span>
+                        {% if check %}
+                        <span class="badge badge-pill badge-{{ check.mailbox_verification|lower }}">{{ check.mailbox_verification }}</span>
+                        {% else %}
+                        <span class="badge badge-pill badge-unknown">UNKNOWN</span>
+                        {% endif %}
+                    </li>
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                        <span class="fw-medium">Inbox Placement</span>
+                        <span class="badge badge-pill badge-unknown">Not Tested</span>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

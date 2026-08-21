@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block page_title %}Domains{% endblock %}
+
+{% block content %}
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-8">
+                <div class="input-group">
+                    <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+                    <input type="text" class="form-control table-search border-start-0" data-target="#domainsTable" placeholder="Search domains...">
+                </div>
+            </div>
+            <div class="col-md-4">
+                <select class="form-select" id="statusFilter">
+                    <option value="">All Statuses</option>
+                    <option value="HEALTHY">Healthy</option>
+                    <option value="GOOD">Good</option>
+                    <option value="WARNING">Warning</option>
+                    <option value="CRITICAL">Critical</option>
+                </select>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0" id="domainsTable">
+                <thead class="bg-light">
+                    <tr>
+                        <th class="ps-4">Domain</th>
+                        <th>Mailforge Status</th>
+                        <th>Health Score</th>
+                        <th>MX</th>
+                        <th>SPF</th>
+                        <th>DKIM</th>
+                        <th>DMARC</th>
+                        <th class="text-center">Campaign Ready</th>
+                        <th>Last Checked</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for d in domains %}
+                    <tr>
+                        <td class="ps-4">
+                            <a href="/domains/{{ d.id }}" class="fw-bold text-dark">{{ d.name }}</a>
+                        </td>
+                        <td>
+                            <span class="badge badge-pill badge-{{ d.mailforge_status|lower }}">{{ d.mailforge_status }}</span>
+                        </td>
+                        <td style="min-width: 140px;">
+                            <div class="d-flex align-items-center">
+                                <span class="me-2 fw-bold text-dark">{{ d.health_score }}%</span>
+                                <div class="progress w-100">
+                                    <div class="progress-bar {% if d.health_score >= 90 %}bg-success{% elif d.health_score >= 70 %}bg-warning{% else %}bg-danger{% endif %}" style="width: {{ d.health_score }}%"></div>
+                                </div>
+                            </div>
+                        </td>
+                        
+                        {% set check = d.checks[-1] if d.checks else None %}
+                        {% if check %}
+                            <td>
+                                {% if check.mx_health == 'PASS' %}<span class="badge bg-success">PASS</span>
+                                {% elif check.mx_health == 'WARN' %}<span class="badge bg-warning text-dark">WARN</span>
+                                {% elif check.mx_health == 'FAIL' %}<span class="badge bg-danger">FAIL</span>
+                                {% else %}<span class="badge bg-secondary">{{ check.mx_health or 'N/A' }}</span>{% endif %}
+                            </td>
+                            <td>
+                                {% if check.spf_status == 'PASS' %}<span class="badge bg-success">PASS</span>
+                                {% elif check.spf_status == 'WARN' %}<span class="badge bg-warning text-dark">WARN</span>
+                                {% elif check.spf_status == 'FAIL' %}<span class="badge bg-danger">FAIL</span>
+                                {% else %}<span class="badge bg-secondary">{{ check.spf_status or 'N/A' }}</span>{% endif %}
+                            </td>
+                            <td>
+                                {% if check.dkim_status == 'PASS' %}<span class="badge bg-success">PASS</span>
+                                {% elif check.dkim_status == 'WARN' %}<span class="badge bg-warning text-dark">WARN</span>
+                                {% elif check.dkim_status == 'FAIL' %}<span class="badge bg-danger">FAIL</span>
+                                {% elif check.dkim_status == 'UNKNOWN' %}<span class="badge bg-secondary">UNKNOWN</span>
+                                {% else %}<span class="badge bg-secondary">{{ check.dkim_status or 'N/A' }}</span>{% endif %}
+                            </td>
+                            <td>
+                                {% if check.dmarc_status == 'PASS' %}<span class="badge bg-success">PASS</span>
+                                {% elif check.dmarc_status == 'WARN' %}<span class="badge bg-warning text-dark">WARN</span>
+                                {% elif check.dmarc_status == 'FAIL' %}<span class="badge bg-danger">FAIL</span>
+                                {% else %}<span class="badge bg-secondary">{{ check.dmarc_status or 'N/A' }}</span>{% endif %}
+                            </td>
+                        {% else %}
+                            <td class="text-muted">-</td>
+                            <td class="text-muted">-</td>
+                            <td class="text-muted">-</td>
+                            <td class="text-muted">-</td>
+                        {% endif %}
+                        
+                        <td class="text-center">
+                            {% if d.campaign_ready %}
+                            <i class="bi bi-check-circle-fill text-success fs-5"></i>
+                            {% else %}
+                            <i class="bi bi-x-circle-fill text-danger fs-5"></i>
+                            {% endif %}
+                        </td>
+                        <td class="text-muted small">{{ d.last_checked.strftime('%Y-%m-%d %H:%M') if d.last_checked else 'Never' }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% if not domains %}
+                    <tr>
+                        <td colspan="9" class="text-center text-muted py-5">
+                            <i class="bi bi-globe display-4 d-block mb-3"></i>
+                            No domains found
+                        </td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('statusFilter').addEventListener('change', function() {
+    const filter = this.value.toLowerCase();
+    const rows = document.querySelectorAll('#domainsTable tbody tr');
+    
+    rows.forEach(row => {
+        if (!filter) {
+            row.style.display = '';
+            return;
+        }
+        // Assuming status is in the Mailforge Status badge or we could check health score etc.
+        // For accurate filtering, we should check a specific data attribute or content.
+        // Let's filter based on row text for simplicity, or we can look at inner text of badges.
+        const text = row.innerText.toLowerCase();
+        row.style.display = text.includes(filter) ? '' : 'none';
+    });
+});
+</script>
+{% endblock %}

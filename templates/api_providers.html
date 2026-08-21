@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block page_title %}API Providers{% endblock %}
+
+{% block content %}
+<p class="text-muted mb-4">Manage integrations with infrastructure providers.</p>
+
+<div class="row g-4">
+    {% for name, status in providers.items() %}
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-body text-center p-5">
+                <div class="mb-4">
+                    {% if 'mailforge' in name|lower %}
+                    <i class="bi bi-envelope-paper display-4 text-primary"></i>
+                    {% elif 'cloudflare' in name|lower %}
+                    <i class="bi bi-cloud display-4 text-warning"></i>
+                    {% elif 'namecheap' in name|lower %}
+                    <i class="bi bi-globe display-4 text-danger"></i>
+                    {% else %}
+                    <i class="bi bi-hdd-network display-4 text-info"></i>
+                    {% endif %}
+                </div>
+                <h4 class="fw-bold mb-3">{{ name }}</h4>
+                <div class="mb-4">
+                    {% if status == 'CONNECTED' or status == 'ACTIVE' %}
+                    <span class="badge badge-pill badge-connected px-4 py-2"><i class="bi bi-check-circle me-1"></i> Connected</span>
+                    {% elif status == 'MISSING' %}
+                    <span class="badge badge-pill badge-missing px-4 py-2"><i class="bi bi-x-circle me-1"></i> Not Configured</span>
+                    {% else %}
+                    <span class="badge badge-pill badge-warning px-4 py-2">{{ status }}</span>
+                    {% endif %}
+                </div>
+                
+                <button class="btn btn-outline-primary w-100">Configure</button>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="col-12 text-center py-5">
+        <i class="bi bi-plug display-1 text-muted mb-3 d-block"></i>
+        <h4 class="text-muted">No API Providers configured</h4>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

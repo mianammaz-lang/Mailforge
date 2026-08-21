@@ -1,0 +1,226 @@
+from fastapi import APIRouter, Depends, Response
+from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
+import io
+import json
+import pandas as pd
+from datetime import datetime
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
+from database.database import get_db
+from database.models import Domain, Mailbox, Issue
+from services.scanner import HealthScanner
+from config.settings import settings
+
+router = APIRouter()
+
+@router.post("/scan/full")
+async def trigger_full_scan(db: Session = Depends(get_db)):
+    scanner = HealthScanner(db, settings)
+    await scanner.run_full_scan()
+    return {"status": "success", "message": "Full scan completed successfully"}
+
+@router.post("/scan/domains")
+async def trigger_domain_scan(db: Session = Depends(get_db)):
+    scanner = HealthScanner(db, settings)
+    await scanner.sync_domains()
+    await scanner.check_all_domains()
+    await scanner.generate_snapshot()
+    return {"status": "success", "message": "Domain scan completed"}
+
+@router.post("/scan/mailboxes")
+async def trigger_mailbox_scan(db: Session = Depends(get_db)):
+    scanner = HealthScanner(db, settings)
+    await scanner.sync_mailboxes()
+    await scanner.check_all_mailboxes()
+    await scanner.generate_snapshot()
+    return {"status": "success", "message": "Mailbox scan completed"}
+
+@router.post("/scan/dns")
+async def trigger_dns_scan(db: Session = Depends(get_db)):
+    scanner = HealthScanner(db, settings)
+    await scanner.check_all_domains()
+    await scanner.generate_snapshot()
+    return {"status": "success", "message": "DNS checks completed"}
+
+# EXPORTS
+
+@router.get("/export/csv")
+def export_csv(db: Session = Depends(get_db)):
+    domains = db.query(Domain).all()
+    data = []
+    for d in domains:
+        data.append({
+            "Domain": d.name,
+            "Type": "Domain",
+            "Health Score": d.health_score,
+            "Status": d.status,
+            "Mailforge Status": d.mailforge_status,
+            "Campaign Ready": "Yes" if d.campaign_ready else "No",
+            "Last Checked": d.last_checked.strftime('%Y-%m-%d %H:%M') if d.last_checked else "Never"
+        })
+    mailboxes = db.query(Mailbox).all()
+    for m in mailboxes:
+        data.append({
+            "Domain": m.domain.name if m.domain else "Unknown",
+            "Type": f"Mailbox ({m.email})",
+            "Health Score": m.health_score,
+            "Status": m.status,
+            "Mailforge Status": m.mailforge_status,
+            "Campaign Ready": "Yes" if m.campaign_ready else "No",
+            "Last Checked": m.last_checked.strftime('%Y-%m-%d %H:%M') if m.last_checked else "Never"
+        })
+    df = pd.DataFrame(data)
+    stream = io.StringIO()
+    df.to_csv(stream, index=False)
+    response = Response(content=stream.getvalue(), media_type="text/csv")
+    response.headers["Content-Disposition"] = f"attachment; filename=mailforge_health_report_{datetime.now().strftime('%Y-%m-%d')}.csv"
+    return response
+
+@router.get("/export/json")
+def export_json(db: Session = Depends(get_db)):
+    domains = db.query(Domain).all()
+    mailboxes = db.query(Mailbox).all()
+    issues = db.query(Issue).filter(Issue.status == "OPEN").all()
+    
+    report_data = {
+        "report_date": datetime.now().isoformat(),
+        "domains": [{
+            "name": d.name,
+            "score": d.health_score,
+            "status": d.status,
+            "campaign_ready": d.campaign_ready,
+            "last_checked": d.last_checked.isoformat() if d.last_checked else None
+        } for d in domains],
+        "mailboxes": [{
+            "email": m.email,
+            "score": m.health_score,
+            "status": m.status,
+            "campaign_ready": m.campaign_ready,
+            "last_checked": m.last_checked.isoformat() if m.last_checked else None
+        } for m in mailboxes],
+        "open_issues": [{
+            "asset": i.domain.name if i.domain else (i.mailbox.email if i.mailbox else "Global"),
+            "severity": i.severity,
+            "type": i.issue_type,
+            "description": i.description,
+            "recommendation": i.recommendation
+        } for i in issues]
+    }
+    
+    stream = io.StringIO()
+    json.dump(report_data, stream, indent=2)
+    response = Response(content=stream.getvalue(), media_type="application/json")
+    response.headers["Content-Disposition"] = f"attachment; filename=mailforge_health_report_{datetime.now().strftime('%Y-%m-%d')}.json"
+    return response
+
+@router.get("/export/excel")
+def export_excel(db: Session = Depends(get_db)):
+    domains = db.query(Domain).all()
+    dom_data = [{
+        "Domain": d.name,
+        "Health Score": d.health_score,
+        "Status": d.status,
+        "Mailforge Status": d.mailforge_status,
+        "Campaign Ready": "Yes" if d.campaign_ready else "No",
+        "Last Checked": d.last_checked.strftime('%Y-%m-%d %H:%M') if d.last_checked else "Never"
+    } for d in domains]
+    
+    mailboxes = db.query(Mailbox).all()
+    mb_data = [{
+        "Email": m.email,
+        "Health Score": m.health_score,
+        "Status": m.status,
+        "Mailforge Status": m.mailforge_status,
+        "Campaign Ready": "Yes" if m.campaign_ready else "No",
+        "Last Checked": m.last_checked.strftime('%Y-%m-%d %H:%M') if m.last_checked else "Never"
+    } for m in mailboxes]
+    
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        pd.DataFrame(dom_data).to_excel(writer, sheet_name="Domains", index=False)
+        pd.DataFrame(mb_data).to_excel(writer, sheet_name="Mailboxes", index=False)
+        
+    output.seek(0)
+    response = StreamingResponse(output, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    response.headers["Content-Disposition"] = f"attachment; filename=mailforge_health_report_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+    return response
+
+@router.get("/export/pdf")
+def export_pdf(db: Session = Depends(get_db)):
+    domains = db.query(Domain).all()
+    mailboxes = db.query(Mailbox).all()
+    issues = db.query(Issue).filter(Issue.status == "OPEN").all()
+    
+    pdf_buffer = io.BytesIO()
+    doc = SimpleDocTemplate(pdf_buffer, pagesize=letter, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
+    story = []
+    
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'DocTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        textColor=colors.HexColor('#1e1b4b'),
+        spaceAfter=15
+    )
+    section_style = ParagraphStyle(
+        'SectionHeading',
+        parent=styles['Heading2'],
+        fontSize=16,
+        textColor=colors.HexColor('#312e81'),
+        spaceBefore=15,
+        spaceAfter=8
+    )
+    normal_style = styles['Normal']
+    
+    # Title
+    story.append(Paragraph("Mailforge Infrastructure Health Report", title_style))
+    story.append(Paragraph(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M')}", normal_style))
+    story.append(Spacer(1, 15))
+    
+    # Executive Summary Table
+    story.append(Paragraph("Executive Summary", section_style))
+    cr_count = sum(1 for m in mailboxes if m.campaign_ready)
+    summary_data = [
+        ["Total Domains", str(len(domains)), "Total Mailboxes", str(len(mailboxes))],
+        ["Healthy Domains", str(sum(1 for d in domains if d.status == 'HEALTHY')), "Campaign Ready Mailboxes", str(cr_count)],
+        ["Open Issues", str(len(issues)), "", ""]
+    ]
+    summary_table = Table(summary_data, colWidths=[120, 120, 150, 120])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f8fafc')),
+        ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#cbd5e1')),
+        ('PADDING', (0,0), (-1,-1), 8),
+        ('FONTNAME', (0,0), (-1,-1), 'Helvetica'),
+        ('FONTSIZE', (0,0), (-1,-1), 10),
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 15))
+    
+    # Domain Health Table
+    story.append(Paragraph("Domain Health Details", section_style))
+    dom_headers = ["Domain", "Score", "Status", "Campaign Ready"]
+    dom_rows = [dom_headers]
+    for d in domains[:15]:  # Limit top 15 for page fit
+        dom_rows.append([d.name, f"{d.health_score}%", d.status, "Yes" if d.campaign_ready else "No"])
+    
+    dom_table = Table(dom_rows, colWidths=[200, 80, 100, 120])
+    dom_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#e2e8f0')),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#e2e8f0')),
+        ('PADDING', (0,0), (-1,-1), 6),
+        ('ALIGN', (1,0), (-1,-1), 'CENTER'),
+        ('FONTSIZE', (0,0), (-1,-1), 9),
+    ]))
+    story.append(dom_table)
+    
+    doc.build(story)
+    pdf_buffer.seek(0)
+    
+    response = StreamingResponse(pdf_buffer, media_type="application/pdf")
+    response.headers["Content-Disposition"] = f"attachment; filename=mailforge_health_report_{datetime.now().strftime('%Y-%m-%d')}.pdf"
+    return response

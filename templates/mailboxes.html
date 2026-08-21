@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block page_title %}Mailboxes{% endblock %}
+
+{% block content %}
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-6">
+                <div class="input-group">
+                    <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+                    <input type="text" class="form-control table-search border-start-0" data-target="#mailboxesTable" placeholder="Search email addresses...">
+                </div>
+            </div>
+            <div class="col-md-3">
+                <select class="form-select" id="domainFilter">
+                    <option value="">All Domains</option>
+                    <!-- Populate from distinct domains -->
+                </select>
+            </div>
+            <div class="col-md-3">
+                <select class="form-select" id="statusFilter">
+                    <option value="">All Statuses</option>
+                    <option value="ACTIVE">Active</option>
+                    <option value="WARNING">Warning</option>
+                    <option value="CRITICAL">Critical</option>
+                </select>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0" id="mailboxesTable">
+                <thead class="bg-light">
+                    <tr>
+                        <th class="ps-4">Email Address</th>
+                        <th>Domain</th>
+                        <th>Status</th>
+                        <th>Health Score</th>
+                        <th class="text-center">Campaign Ready</th>
+                        <th>Last Checked</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for m in mailboxes %}
+                    <tr>
+                        <td class="ps-4">
+                            <a href="/mailboxes/{{ m.id }}" class="fw-bold text-dark">{{ m.email }}</a>
+                        </td>
+                        <td>
+                            <a href="/domains/{{ m.domain.id }}" class="text-decoration-none">{{ m.domain.name }}</a>
+                        </td>
+                        <td>
+                            <span class="badge badge-pill badge-{{ m.status|lower }}">{{ m.status }}</span>
+                        </td>
+                        <td style="min-width: 140px;">
+                            <div class="d-flex align-items-center">
+                                <span class="me-2 fw-bold text-dark">{{ m.health_score }}%</span>
+                                <div class="progress w-100">
+                                    <div class="progress-bar {% if m.health_score >= 90 %}bg-success{% elif m.health_score >= 70 %}bg-warning{% else %}bg-danger{% endif %}" style="width: {{ m.health_score }}%"></div>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="text-center">
+                            {% if m.campaign_ready %}
+                            <i class="bi bi-check-circle-fill text-success fs-5"></i>
+                            {% else %}
+                            <i class="bi bi-x-circle-fill text-danger fs-5"></i>
+                            {% endif %}
+                        </td>
+                        <td class="text-muted small">{{ m.last_checked.strftime('%Y-%m-%d %H:%M') if m.last_checked else 'Never' }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% if not mailboxes %}
+                    <tr>
+                        <td colspan="6" class="text-center text-muted py-5">
+                            <i class="bi bi-envelope display-4 d-block mb-3"></i>
+                            No mailboxes found
+                        </td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
