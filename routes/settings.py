@@ -6,88 +6,123 @@ import httpx
 from database.database import get_db
 from config.settings import settings
 from services.settings_service import get_setting, set_setting
+from services.instantly import InstantlyClient
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
 @router.get("/")
-def view_settings(request: Request, db: Session = Depends(get_db)):
-    mailforge_key = get_setting(db, "mailforge_api_key", settings.MAILFORGE_API_KEY)
-    openrouter_key = get_setting(db, "openrouter_api_key", settings.OPENROUTER_API_KEY)
-    openrouter_model = get_setting(db, "openrouter_model", settings.OPENROUTER_MODEL)
-    scan_interval = get_setting(db, "scan_interval", "24")
-    
-    return templates.TemplateResponse("settings.html", {
-        "request": request,
-        "mailforge_key": mailforge_key,
-        "openrouter_key": openrouter_key,
-        "openrouter_model": openrouter_model,
-        "scan_interval": scan_interval,
-        "active_page": "settings"
-    })
+def get_settings(request: Request, db: Session = Depends(get_db)):
+    mailforge_api_key = get_setting(db, "mailforge_api_key") or settings.MAILFORGE_API_KEY
+    instantly_api_key = get_setting(db, "instantly_api_key") or getattr(settings, "INSTANTLY_API_KEY", None)
+    openrouter_api_key = get_setting(db, "openrouter_api_key") or settings.OPENROUTER_API_KEY
+    openrouter_model = get_setting(db, "openrouter_model", "meta-llama/llama-3.1-8b-instruct:free")
+    scan_interval = get_setting(db, "scan_interval", str(settings.SCAN_INTERVAL_HOURS))
+
+    return templates.TemplateResponse(
+        "settings.html",
+        {
+            "request": request,
+            "active_page": "settings",
+            "mailforge_api_key": mailforge_api_key,
+            "instantly_api_key": instantly_api_key,
+            "openrouter_api_key": openrouter_api_key,
+            "openrouter_model": openrouter_model,
+            "scan_interval": scan_interval,
+        },
+    )
 
 @router.post("/save")
 def save_settings(
-    request: Request,
-    mailforge_api_key: str = Form(None),
-    openrouter_api_key: str = Form(None),
-    openrouter_model: str = Form(None),
-    scan_interval: str = Form(None),
+    mailforge_api_key: str = Form(""),
+    instantly_api_key: str = Form(""),
+    openrouter_api_key: str = Form(""),
+    openrouter_model: str = Form(""),
+    scan_interval: str = Form(""),
     db: Session = Depends(get_db)
 ):
-    if mailforge_api_key is not None:
-        set_setting(db, "mailforge_api_key", mailforge_api_key.strip())
-    if openrouter_api_key is not None:
-        set_setting(db, "openrouter_api_key", openrouter_api_key.strip())
-    if openrouter_model is not None:
-        set_setting(db, "openrouter_model", openrouter_model.strip())
-    if scan_interval is not None:
-        set_setting(db, "scan_interval", scan_interval.strip())
-        
+    set_setting(db, "mailforge_api_key", mailforge_api_key.strip())
+    set_setting(db, "instantly_api_key", instantly_api_key.strip())
+    set_setting(db, "openrouter_api_key", openrouter_api_key.strip())
+    set_setting(db, "openrouter_model", openrouter_model.strip())
+    set_setting(db, "scan_interval", scan_interval.strip())
     return RedirectResponse(url="/settings", status_code=303)
 
+@router.post("/api-keys/delete")
+def delete_api_key(key_name: str = Form(...), db: Session = Depends(get_db)):
+    set_setting(db, key_name, "")
+    return RedirectResponse(url="/settings/providers", status_code=303)
+
 @router.get("/fetch-models")
-async def fetch_models(api_key: str = None):
-    # Fetch models from OpenRouter
-    # Standard endpoint: https://openrouter.ai/api/v1/models
-    # No auth actually required for getting models, but we can pass it if provided
-    headers = {}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-        
+async def fetch_models():
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get("https://openrouter.ai/api/v1/models", headers=headers)
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get("https://openrouter.ai/api/v1/models")
             response.raise_for_status()
             data = response.json()
-            models = data.get("data", [])
-            # Filter for free models or just return all models that end with :free
-            free_models = [m for m in models if m.get("id", "").endswith(":free")]
-            # If no free models found (unlikely), return first 20 models
-            if not free_models:
-                free_models = models[:20]
-            return {"status": "success", "models": free_models}
+            models = [
+                {"id": m["id"], "name": m.get("name", m["id"])}
+                for m in data.get("data", [])
+                if m["id"].endswith(":free")
+            ]
+            return {"models": models}
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return {"error": str(e), "models": []}
 
 @router.get("/providers")
-def api_providers(request: Request, db: Session = Depends(get_db)):
-    mailforge_key = get_setting(db, "mailforge_api_key", settings.MAILFORGE_API_KEY)
-    intodns_key = get_setting(db, "intodns_api_key", settings.INTODNS_API_KEY)
-    dnsxray_key = get_setting(db, "dnsxray_api_key", settings.DNSXRAY_API_KEY)
-    emailprober_key = get_setting(db, "emailprober_api_key", settings.EMAILPROBER_API_KEY)
-    openrouter_key = get_setting(db, "openrouter_api_key", settings.OPENROUTER_API_KEY)
-    
+def get_providers(request: Request, db: Session = Depends(get_db)):
+    mailforge_key = get_setting(db, "mailforge_api_key") or settings.MAILFORGE_API_KEY
+    instantly_key = get_setting(db, "instantly_api_key") or getattr(settings, "INSTANTLY_API_KEY", None)
+    openrouter_key = get_setting(db, "openrouter_api_key") or settings.OPENROUTER_API_KEY
+
     providers = {
-        "Mailforge": "CONNECTED" if mailforge_key else "MISSING",
-        "IntoDNS": "CONNECTED" if intodns_key else "MISSING",
-        "DNSXray": "CONNECTED" if dnsxray_key else "MISSING",
-        "EmailProber": "CONNECTED" if emailprober_key else "MISSING",
-        "OpenRouter AI": "CONNECTED" if openrouter_key else "MISSING",
-        "Local DNS": "ACTIVE"
+        "Mailforge": {
+            "key": "mailforge_api_key", 
+            "status": "CONNECTED" if mailforge_key else "MISSING", 
+            "icon": "bi-envelope-paper", 
+            "color": "text-primary", 
+            "description": "Domain and mailbox management"
+        },
+        "Instantly": {
+            "key": "instantly_api_key", 
+            "status": "CONNECTED" if instantly_key else "MISSING", 
+            "icon": "bi-lightning-charge", 
+            "color": "text-warning", 
+            "description": "Inbox placement testing"
+        },
+        "OpenRouter AI": {
+            "key": "openrouter_api_key", 
+            "status": "CONNECTED" if openrouter_key else "MISSING", 
+            "icon": "bi-robot", 
+            "color": "text-success", 
+            "description": "AI-powered recommendations"
+        },
+        "Local DNS": {
+            "key": None, 
+            "status": "ACTIVE", 
+            "icon": "bi-hdd-network", 
+            "color": "text-info", 
+            "description": "SPF, DKIM, DMARC, DNSSEC checks"
+        },
     }
-    return templates.TemplateResponse("api_providers.html", {
-        "request": request,
-        "providers": providers,
-        "active_page": "providers"
-    })
+
+    return templates.TemplateResponse(
+        "api_providers.html",
+        {
+            "request": request,
+            "active_page": "providers",
+            "providers": providers
+        }
+    )
+
+@router.get("/instantly/tests")
+async def get_instantly_tests(db: Session = Depends(get_db)):
+    instantly_api_key = get_setting(db, "instantly_api_key") or getattr(settings, "INSTANTLY_API_KEY", None)
+    client = InstantlyClient(api_key=instantly_api_key)
+    return await client.list_tests()
+
+@router.get("/instantly/analytics")
+async def get_instantly_analytics(db: Session = Depends(get_db)):
+    instantly_api_key = get_setting(db, "instantly_api_key") or getattr(settings, "INSTANTLY_API_KEY", None)
+    client = InstantlyClient(api_key=instantly_api_key)
+    return await client.get_analytics()

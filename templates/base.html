@@ -4,13 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mailforge Health Dashboard</title>
-    <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Bootstrap Icons -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
-    <!-- Custom CSS -->
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -48,12 +44,21 @@
                             <i class="bi bi-graph-up"></i> Health History
                         </a>
                     </li>
-                    <li class="nav-item">
-                        <a href="/api-providers" class="nav-link {% if active_page == 'providers' %}active{% endif %}">
-                            <i class="bi bi-plug"></i> API Providers
-                        </a>
-                    </li>
                 </ul>
+                <div class="sidebar-bottom">
+                    <ul class="nav nav-pills flex-column">
+                        <li class="nav-item">
+                            <a href="/settings/providers" class="nav-link {% if active_page == 'providers' %}active{% endif %}">
+                                <i class="bi bi-plug"></i> API Providers
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="/settings" class="nav-link {% if active_page == 'settings' %}active{% endif %}">
+                                <i class="bi bi-gear"></i> Settings
+                            </a>
+                        </li>
+                    </ul>
+                </div>
             </div>
             
             <!-- Main Content -->
@@ -62,15 +67,15 @@
                 <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom px-4 py-3">
                     <div class="container-fluid">
                         <span class="navbar-brand mb-0 h1 fw-bold text-dark">{% block page_title %}Dashboard{% endblock %}</span>
-                        <div class="d-flex">
-                            <button class="btn btn-outline-secondary me-2" onclick="window.location.reload()">
-                                <i class="bi bi-arrow-clockwise"></i> Refresh
+                        <div class="d-flex flex-wrap gap-2">
+                            <button class="btn btn-outline-secondary" onclick="window.location.reload()">
+                                <i class="bi bi-arrow-clockwise"></i> <span class="d-none d-lg-inline">Refresh</span>
                             </button>
-                            <div class="dropdown me-2">
-                                <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                    <i class="bi bi-download me-1"></i> Export Report
+                            <div class="dropdown">
+                                <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                    <i class="bi bi-download me-1"></i> <span class="d-none d-lg-inline">Export</span>
                                 </button>
-                                <ul class="dropdown-menu">
+                                <ul class="dropdown-menu dropdown-menu-end">
                                     <li><a class="dropdown-item" href="/api/export/pdf"><i class="bi bi-file-earmark-pdf me-2 text-danger"></i>Export PDF</a></li>
                                     <li><a class="dropdown-item" href="/api/export/excel"><i class="bi bi-file-earmark-excel me-2 text-success"></i>Export Excel</a></li>
                                     <li><a class="dropdown-item" href="/api/export/csv"><i class="bi bi-file-earmark-spreadsheet me-2 text-primary"></i>Export CSV</a></li>
@@ -79,11 +84,9 @@
                             </div>
                             <div class="btn-group">
                                 <button class="btn btn-primary shadow-sm" onclick="runFullScan()">
-                                    <i class="bi bi-search"></i> Run Full Scan
+                                    <i class="bi bi-radar"></i> <span class="d-none d-lg-inline">Run Full Scan</span>
                                 </button>
-                                <button type="button" class="btn btn-primary dropdown-toggle dropdown-toggle-split shadow-sm" data-bs-toggle="dropdown" aria-expanded="false">
-                                    <span class="visually-hidden">Toggle Dropdown</span>
-                                </button>
+                                <button type="button" class="btn btn-primary dropdown-toggle dropdown-toggle-split shadow-sm" data-bs-toggle="dropdown"></button>
                                 <ul class="dropdown-menu dropdown-menu-end">
                                     <li><a class="dropdown-item" href="#" onclick="runScan('/api/scan/domains', 'Scanning Domains...')"><i class="bi bi-globe me-2"></i>Scan Domains Only</a></li>
                                     <li><a class="dropdown-item" href="#" onclick="runScan('/api/scan/mailboxes', 'Scanning Mailboxes...')"><i class="bi bi-envelope me-2"></i>Scan Mailboxes Only</a></li>
@@ -103,7 +106,7 @@
 
                 <!-- Footer -->
                 <footer class="bg-white border-top p-3 text-center text-muted small">
-                    <p class="mb-0"><i class="bi bi-info-circle me-1"></i> Infrastructure health checks only. Results do not guarantee inbox placement.</p>
+                    <p class="mb-0">Mailforge Health Dashboard &middot; Infrastructure monitoring & deliverability insights</p>
                 </footer>
             </div>
         </div>
@@ -112,32 +115,29 @@
     <!-- Scan Modal -->
     <div class="modal fade" id="scanModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content border-0">
+            <div class="modal-content border-0 shadow-lg">
                 <div class="modal-header modal-header-gradient">
-                    <h5 class="modal-title"><i class="bi bi-radar me-2"></i> Running Full Health Scan</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <h5 class="modal-title text-white"><i class="bi bi-radar me-2"></i> Running Health Scan</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body p-4">
-                    <div class="progress mb-4">
+                    <div class="progress mb-4" style="height: 8px;">
                         <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" id="scanProgress" style="width: 0%"></div>
                     </div>
                     <ul class="list-unstyled fw-medium">
-                        <li class="scan-step text-muted mb-2"><i class="bi bi-circle me-2"></i> Fetching active domains from providers</li>
-                        <li class="scan-step text-muted mb-2"><i class="bi bi-circle me-2"></i> Verifying DNS records (SPF, DKIM, DMARC)</li>
-                        <li class="scan-step text-muted mb-2"><i class="bi bi-circle me-2"></i> Checking SMTP connectivity for mailboxes</li>
-                        <li class="scan-step text-muted mb-2"><i class="bi bi-circle me-2"></i> Analyzing blacklist status</li>
-                        <li class="scan-step text-muted"><i class="bi bi-circle me-2"></i> Generating health score reports</li>
+                        <li class="scan-step text-muted mb-2" data-text="Fetching domains & mailboxes from Mailforge"><i class="bi bi-circle me-2"></i> Fetching domains & mailboxes from Mailforge</li>
+                        <li class="scan-step text-muted mb-2" data-text="Verifying DNS records (SPF, DKIM, DMARC)"><i class="bi bi-circle me-2"></i> Verifying DNS records (SPF, DKIM, DMARC)</li>
+                        <li class="scan-step text-muted mb-2" data-text="Checking SMTP connectivity & STARTTLS"><i class="bi bi-circle me-2"></i> Checking SMTP connectivity & STARTTLS</li>
+                        <li class="scan-step text-muted mb-2" data-text="Scanning blacklists & security protocols"><i class="bi bi-circle me-2"></i> Scanning blacklists & security protocols</li>
+                        <li class="scan-step text-muted" data-text="Calculating health scores & generating report"><i class="bi bi-circle me-2"></i> Calculating health scores & generating report</li>
                     </ul>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Custom JS -->
     <script src="/static/js/main.js"></script>
     {% block scripts %}{% endblock %}
 </body>

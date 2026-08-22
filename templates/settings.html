@@ -3,98 +3,132 @@
 
 {% block content %}
 <div class="row">
-    <div class="col-md-8 offset-md-2">
-        <div class="card shadow-sm border-0 mb-4">
-            <div class="card-header bg-white border-bottom-0 pt-4 pb-0">
-                <h5 class="fw-bold mb-0"><i class="bi bi-gear-fill text-primary me-2"></i> System Settings & API Keys</h5>
-            </div>
-            <div class="card-body p-4">
-                <form action="/settings/save" method="POST">
-                    <!-- Mailforge API Key -->
-                    <div class="mb-4">
-                        <label class="form-label fw-bold">Mailforge API Key</label>
-                        <input type="password" class="form-control" name="mailforge_api_key" value="{{ mailforge_key or '' }}" placeholder="Paste your Mailforge API Key here">
-                        <div class="form-text">Required to sync your domains and mailboxes automatically.</div>
-                    </div>
-                    
-                    <!-- OpenRouter API Key -->
-                    <div class="mb-4">
-                        <label class="form-label fw-bold">OpenRouter API Key (Optional)</label>
-                        <div class="input-group">
-                            <input type="password" class="form-control" id="openrouter_api_key" name="openrouter_api_key" value="{{ openrouter_key or '' }}" placeholder="sk-or-v1-...">
-                            <button class="btn btn-outline-secondary" type="button" onclick="fetchModels()">
-                                <i class="bi bi-arrow-clockwise me-1"></i> Auto-Fetch Models
-                            </button>
+    <div class="col-lg-9 mx-auto">
+        <!-- Tabs -->
+        <ul class="nav nav-pills mb-4" role="tablist">
+            <li class="nav-item"><button class="nav-link active rounded-pill px-4 me-2" data-bs-toggle="pill" data-bs-target="#apikeys"><i class="bi bi-key me-1"></i> API Keys</button></li>
+            <li class="nav-item"><button class="nav-link rounded-pill px-4" data-bs-toggle="pill" data-bs-target="#prefs"><i class="bi bi-sliders me-1"></i> Preferences</button></li>
+        </ul>
+
+        <form action="/settings/save" method="POST">
+            <div class="tab-content">
+                <!-- API Keys Tab -->
+                <div class="tab-pane fade show active" id="apikeys">
+                    <!-- Mailforge -->
+                    <div class="card shadow-sm border-0 mb-3">
+                        <div class="card-body p-4">
+                            <div class="d-flex align-items-center mb-3">
+                                <div class="provider-icon bg-primary-soft me-3"><i class="bi bi-envelope-paper text-primary"></i></div>
+                                <div>
+                                    <h6 class="fw-bold mb-0">Mailforge API Key</h6>
+                                    <small class="text-muted">Required. Syncs your domains and mailboxes from Mailforge.</small>
+                                </div>
+                            </div>
+                            <div class="input-group">
+                                <input type="password" class="form-control" id="mailforge_key_input" name="mailforge_api_key" value="{{ mailforge_api_key or '' }}" placeholder="Paste your Mailforge API Key">
+                                <button class="btn btn-outline-secondary password-toggle" type="button" onclick="togglePassword('mailforge_key_input', this)"><i class="bi bi-eye"></i></button>
+                            </div>
                         </div>
-                        <div class="form-text">Used to fetch free LLMs and generate AI recommendations on SPF/DKIM/DMARC delivery issues.</div>
                     </div>
 
-                    <!-- OpenRouter Model selection -->
-                    <div class="mb-4">
-                        <label class="form-label fw-bold">OpenRouter Model</label>
-                        <select class="form-select" id="openrouter_model" name="openrouter_model">
-                            {% if openrouter_model %}
-                            <option value="{{ openrouter_model }}" selected>{{ openrouter_model }}</option>
-                            {% else %}
-                            <option value="meta-llama/llama-3.1-8b-instruct:free" selected>meta-llama/llama-3.1-8b-instruct:free (Default)</option>
-                            {% endif %}
-                        </select>
-                        <div class="form-text">Select a free AI model to generate deliverability improvements. Click "Auto-Fetch Models" above to load options.</div>
+                    <!-- Instantly -->
+                    <div class="card shadow-sm border-0 mb-3">
+                        <div class="card-body p-4">
+                            <div class="d-flex align-items-center mb-3">
+                                <div class="provider-icon bg-warning-soft me-3"><i class="bi bi-lightning-charge text-warning"></i></div>
+                                <div>
+                                    <h6 class="fw-bold mb-0">Instantly API Key</h6>
+                                    <small class="text-muted">Optional. Enables inbox placement testing via Instantly.ai</small>
+                                </div>
+                            </div>
+                            <div class="input-group">
+                                <input type="password" class="form-control" id="instantly_key_input" name="instantly_api_key" value="{{ instantly_api_key or '' }}" placeholder="Paste your Instantly V2 API Key">
+                                <button class="btn btn-outline-secondary password-toggle" type="button" onclick="togglePassword('instantly_key_input', this)"><i class="bi bi-eye"></i></button>
+                            </div>
+                        </div>
                     </div>
 
-                    <!-- Scan Interval -->
-                    <div class="mb-4">
-                        <label class="form-label fw-bold">Scan Interval</label>
-                        <select class="form-select" name="scan_interval">
-                            <option value="6" {% if scan_interval == '6' %}selected{% endif %}>Every 6 hours</option>
-                            <option value="12" {% if scan_interval == '12' %}selected{% endif %}>Every 12 hours</option>
-                            <option value="24" {% if scan_interval == '24' or not scan_interval %}selected{% endif %}>Every 24 hours (Daily)</option>
-                            <option value="168" {% if scan_interval == '168' %}selected{% endif %}>Every 7 days (Weekly)</option>
-                        </select>
+                    <!-- OpenRouter -->
+                    <div class="card shadow-sm border-0 mb-3">
+                        <div class="card-body p-4">
+                            <div class="d-flex align-items-center mb-3">
+                                <div class="provider-icon bg-success-soft me-3"><i class="bi bi-robot text-success"></i></div>
+                                <div>
+                                    <h6 class="fw-bold mb-0">OpenRouter API Key</h6>
+                                    <small class="text-muted">Optional. Powers AI-generated fix recommendations for deliverability issues.</small>
+                                </div>
+                            </div>
+                            <div class="input-group mb-3">
+                                <input type="password" class="form-control" id="openrouter_api_key" name="openrouter_api_key" value="{{ openrouter_api_key or '' }}" placeholder="sk-or-v1-...">
+                                <button class="btn btn-outline-secondary password-toggle" type="button" onclick="togglePassword('openrouter_api_key', this)"><i class="bi bi-eye"></i></button>
+                                <button class="btn btn-outline-primary" type="button" onclick="fetchModels()"><i class="bi bi-arrow-clockwise me-1"></i> Fetch Models</button>
+                            </div>
+                            <label class="form-label fw-medium small">AI Model</label>
+                            <select class="form-select" id="openrouter_model" name="openrouter_model">
+                                {% if openrouter_model %}
+                                <option value="{{ openrouter_model }}" selected>{{ openrouter_model }}</option>
+                                {% else %}
+                                <option value="meta-llama/llama-3.1-8b-instruct:free" selected>meta-llama/llama-3.1-8b-instruct:free (Default)</option>
+                                {% endif %}
+                            </select>
+                        </div>
                     </div>
+                </div>
 
-                    <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-4">
-                        <button type="submit" class="btn btn-primary px-5 shadow-sm"><i class="bi bi-save me-2"></i>Save Configuration</button>
+                <!-- Preferences Tab -->
+                <div class="tab-pane fade" id="prefs">
+                    <div class="card shadow-sm border-0">
+                        <div class="card-body p-4">
+                            <h6 class="fw-bold mb-3"><i class="bi bi-clock me-2 text-primary"></i>Scan Schedule</h6>
+                            <select class="form-select" name="scan_interval">
+                                <option value="6" {% if scan_interval == '6' %}selected{% endif %}>Every 6 hours</option>
+                                <option value="12" {% if scan_interval == '12' %}selected{% endif %}>Every 12 hours</option>
+                                <option value="24" {% if scan_interval == '24' or not scan_interval %}selected{% endif %}>Every 24 hours (Daily)</option>
+                                <option value="168" {% if scan_interval == '168' %}selected{% endif %}>Every 7 days (Weekly)</option>
+                            </select>
+                            <div class="form-text">How often automated health checks are performed.</div>
+                        </div>
                     </div>
-                </form>
+                </div>
             </div>
-        </div>
+
+            <div class="d-flex justify-content-between mt-4">
+                <a href="/settings/providers" class="btn btn-outline-secondary"><i class="bi bi-plug me-1"></i> View Connected Services</a>
+                <button type="submit" class="btn btn-primary px-5 shadow-sm"><i class="bi bi-save me-2"></i>Save Configuration</button>
+            </div>
+        </form>
     </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+function togglePassword(inputId, btn) {
+    const input = document.getElementById(inputId);
+    const icon = btn.querySelector('i');
+    if (input.type === 'password') { input.type = 'text'; icon.className = 'bi bi-eye-slash'; }
+    else { input.type = 'password'; icon.className = 'bi bi-eye'; }
+}
+
 async function fetchModels() {
     const key = document.getElementById('openrouter_api_key').value;
     const select = document.getElementById('openrouter_model');
-    const originalText = select.innerHTML;
-    
+    const orig = select.innerHTML;
     select.innerHTML = '<option>Loading models...</option>';
-    
     try {
-        const response = await fetch(`/settings/fetch-models?api_key=${encodeURIComponent(key)}`);
-        const data = await response.json();
-        
+        const r = await fetch(`/settings/fetch-models?api_key=${encodeURIComponent(key)}`);
+        const data = await r.json();
         if (data.status === 'success' && data.models.length > 0) {
             select.innerHTML = '';
             data.models.forEach(m => {
                 const opt = document.createElement('option');
                 opt.value = m.id;
-                opt.innerText = `${m.name} (${m.id})`;
-                if (m.id === "{{ openrouter_model }}") {
-                    opt.selected = true;
-                }
+                opt.innerText = `${m.name || m.id} (${m.id})`;
+                if (m.id === "{{ openrouter_model }}") opt.selected = true;
                 select.appendChild(opt);
             });
-        } else {
-            select.innerHTML = originalText;
-            alert(data.message || 'Could not fetch any models.');
-        }
-    } catch (e) {
-        select.innerHTML = originalText;
-        alert('Failed to connect to backend setting service.');
-    }
+        } else { select.innerHTML = orig; alert(data.message || 'No models found.'); }
+    } catch(e) { select.innerHTML = orig; alert('Connection failed.'); }
 }
 </script>
 {% endblock %}

@@ -1,45 +1,102 @@
 {% extends "base.html" %}
-{% block page_title %}API Providers{% endblock %}
+{% block page_title %}Connected Services & Integrations{% endblock %}
 
 {% block content %}
-<p class="text-muted mb-4">Manage integrations with infrastructure providers.</p>
+<p class="text-muted mb-4">Manage your API connections. Add keys in <a href="/settings">Settings</a> or remove connected services below.</p>
 
-<div class="row g-4">
-    {% for name, status in providers.items() %}
-    <div class="col-md-4">
-        <div class="card h-100">
-            <div class="card-body text-center p-5">
-                <div class="mb-4">
-                    {% if 'mailforge' in name|lower %}
-                    <i class="bi bi-envelope-paper display-4 text-primary"></i>
-                    {% elif 'cloudflare' in name|lower %}
-                    <i class="bi bi-cloud display-4 text-warning"></i>
-                    {% elif 'namecheap' in name|lower %}
-                    <i class="bi bi-globe display-4 text-danger"></i>
-                    {% else %}
-                    <i class="bi bi-hdd-network display-4 text-info"></i>
-                    {% endif %}
+<div class="row g-4 mb-5">
+    {% for name, provider in providers.items() %}
+    <div class="col-md-6 col-lg-4">
+        <div class="card provider-card h-100 shadow-sm border-0">
+            <div class="card-body p-4">
+                <div class="d-flex align-items-start mb-3">
+                    <div class="provider-icon bg-{{ 'primary' if 'primary' in provider.color else 'warning' if 'warning' in provider.color else 'success' if 'success' in provider.color else 'info' }}-soft me-3">
+                        <i class="bi {{ provider.icon }} {{ provider.color }}"></i>
+                    </div>
+                    <div class="flex-grow-1">
+                        <h5 class="fw-bold mb-1">{{ name }}</h5>
+                        <p class="text-muted small mb-0">{{ provider.description }}</p>
+                    </div>
                 </div>
-                <h4 class="fw-bold mb-3">{{ name }}</h4>
-                <div class="mb-4">
-                    {% if status == 'CONNECTED' or status == 'ACTIVE' %}
-                    <span class="badge badge-pill badge-connected px-4 py-2"><i class="bi bi-check-circle me-1"></i> Connected</span>
-                    {% elif status == 'MISSING' %}
-                    <span class="badge badge-pill badge-missing px-4 py-2"><i class="bi bi-x-circle me-1"></i> Not Configured</span>
+                <div class="d-flex align-items-center justify-content-between mt-3">
+                    {% if provider.status == 'CONNECTED' or provider.status == 'ACTIVE' %}
+                    <span class="badge badge-pill badge-connected px-3 py-2"><i class="bi bi-check-circle me-1"></i> Connected</span>
                     {% else %}
-                    <span class="badge badge-pill badge-warning px-4 py-2">{{ status }}</span>
+                    <span class="badge badge-pill badge-missing px-3 py-2"><i class="bi bi-x-circle me-1"></i> Not Configured</span>
                     {% endif %}
+                    
+                    <div>
+                        {% if provider.status == 'MISSING' and provider.key %}
+                        <a href="/settings" class="btn btn-sm btn-primary"><i class="bi bi-plus-circle me-1"></i> Configure</a>
+                        {% elif provider.status in ['CONNECTED', 'ACTIVE'] and provider.key %}
+                        <form action="/settings/api-keys/delete" method="POST" class="d-inline" onsubmit="return confirm('Remove this API key?')">
+                            <input type="hidden" name="key_name" value="{{ provider.key }}">
+                            <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i> Remove</button>
+                        </form>
+                        {% endif %}
+                    </div>
                 </div>
-                
-                <button class="btn btn-outline-primary w-100">Configure</button>
             </div>
         </div>
     </div>
-    {% else %}
-    <div class="col-12 text-center py-5">
-        <i class="bi bi-plug display-1 text-muted mb-3 d-block"></i>
-        <h4 class="text-muted">No API Providers configured</h4>
-    </div>
     {% endfor %}
 </div>
+
+<!-- Instantly Inbox Placement Section -->
+<div class="card shadow-sm border-0">
+    <div class="card-header bg-white border-bottom-0 pt-4 pb-0 px-4">
+        <div class="d-flex align-items-center justify-content-between">
+            <h5 class="fw-bold mb-0"><i class="bi bi-lightning-charge text-warning me-2"></i> Instantly Inbox Placement Tests</h5>
+            {% if providers.get('Instantly', {}).get('status') == 'CONNECTED' %}
+            <button class="btn btn-sm btn-outline-primary" onclick="loadInstantlyTests()"><i class="bi bi-arrow-clockwise me-1"></i> Load Tests</button>
+            {% endif %}
+        </div>
+    </div>
+    <div class="card-body px-4 pb-4">
+        {% if providers.get('Instantly', {}).get('status') == 'CONNECTED' %}
+        <div id="instantlyTestsContainer">
+            <p class="text-muted mb-0">Click <strong>Load Tests</strong> to fetch your inbox placement tests from Instantly.</p>
+        </div>
+        {% else %}
+        <div class="text-center py-4">
+            <i class="bi bi-lightning-charge display-4 text-muted d-block mb-3"></i>
+            <h6 class="text-muted">Inbox Placement Testing Not Available</h6>
+            <p class="text-muted small mb-3">Connect your Instantly API key in <a href="/settings">Settings</a> to enable inbox placement testing.</p>
+            <a href="/settings" class="btn btn-primary btn-sm"><i class="bi bi-key me-1"></i> Add API Key</a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadInstantlyTests() {
+    const container = document.getElementById('instantlyTestsContainer');
+    container.innerHTML = '<div class="text-center py-3"><div class="spinner-border text-primary" role="status"></div><p class="text-muted mt-2">Fetching tests from Instantly...</p></div>';
+    
+    try {
+        const r = await fetch('/settings/instantly/tests');
+        const data = await r.json();
+        
+        if (data.status === 'success' && data.tests && data.tests.length > 0) {
+            let html = '<div class="table-responsive"><table class="table table-hover mb-0"><thead class="bg-light"><tr><th>Test Name</th><th>Code</th><th>Status</th><th>Created</th><th>Emails</th></tr></thead><tbody>';
+            data.tests.forEach(t => {
+                const statusBadge = t.status === 1 ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Inactive</span>';
+                const created = t.timestamp_created ? new Date(t.timestamp_created).toLocaleDateString() : 'N/A';
+                const emails = (t.emails || []).join(', ') || 'N/A';
+                html += `<tr><td class="fw-medium">${t.name || 'Unnamed'}</td><td><code>${t.test_code || 'N/A'}</code></td><td>${statusBadge}</td><td class="text-muted small">${created}</td><td class="text-muted small">${emails}</td></tr>`;
+            });
+            html += '</tbody></table></div>';
+            container.innerHTML = html;
+        } else if (data.status === 'success') {
+            container.innerHTML = '<div class="text-center py-3 text-muted"><i class="bi bi-inbox display-4 d-block mb-2"></i><p>No inbox placement tests found. Create one in your Instantly dashboard first.</p></div>';
+        } else {
+            container.innerHTML = `<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>${data.message || 'Failed to fetch tests.'}</div>`;
+        }
+    } catch(e) {
+        container.innerHTML = '<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>Connection error. Please check your API key.</div>';
+    }
+}
+</script>
 {% endblock %}

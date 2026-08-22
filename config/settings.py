@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     EMAILPROBER_API_KEY: Optional[str] = None
     OPENROUTER_API_KEY: Optional[str] = None
     OPENROUTER_MODEL: str = "meta-llama/llama-3.1-8b-instruct:free"
+    INSTANTLY_API_KEY: Optional[str] = None
     
     DATABASE_URL: str = "sqlite:///./mailforge_health.db"
     SCAN_INTERVAL_HOURS: int = 24

@@ -206,3 +206,76 @@ body {
 @keyframes shine {
   to { background-position-x: -200%; }
 }
+
+/* API Provider Cards */
+.provider-card {
+  transition: all 0.3s ease;
+  border: 1px solid #e2e8f0;
+}
+.provider-card:hover {
+  border-color: var(--primary);
+  box-shadow: 0 8px 25px rgba(79, 70, 229, 0.12);
+}
+.provider-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.75rem;
+}
+.provider-icon.bg-primary-soft { background: rgba(79, 70, 229, 0.1); }
+.provider-icon.bg-warning-soft { background: rgba(245, 158, 11, 0.1); }
+.provider-icon.bg-success-soft { background: rgba(16, 185, 129, 0.1); }
+.provider-icon.bg-info-soft { background: rgba(59, 130, 246, 0.1); }
+.provider-icon.bg-danger-soft { background: rgba(239, 68, 68, 0.1); }
+
+/* Password toggle */
+.password-toggle { cursor: pointer; }
+
+/* Tab pills styling */
+.nav-pills .nav-link {
+  color: #64748b;
+  font-weight: 500;
+}
+.nav-pills .nav-link.active {
+  background: var(--primary);
+  color: white;
+}
+
+/* Badge styling additions */
+.badge-pass { background-color: rgba(16, 185, 129, 0.1); color: var(--success); border: 1px solid rgba(16, 185, 129, 0.2); }
+.badge-fail { background-color: rgba(239, 68, 68, 0.1); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.2); }
+.badge-warn { background-color: rgba(245, 158, 11, 0.1); color: var(--warning); border: 1px solid rgba(245, 158, 11, 0.2); }
+
+/* Sidebar bottom section */
+.sidebar-bottom {
+  border-top: 1px solid rgba(255,255,255,0.1);
+  padding-top: 1rem;
+  margin-top: auto;
+}
+
+/* Mobile responsive sidebar */
+@media (max-width: 767.98px) {
+  .sidebar {
+    min-height: auto;
+    flex-direction: row !important;
+    padding: 0.5rem !important;
+  }
+  .sidebar .nav {
+    flex-direction: row !important;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  .sidebar .nav-item {
+    white-space: nowrap;
+  }
+  .sidebar-bottom {
+    border-top: none;
+    border-left: 1px solid rgba(255,255,255,0.1);
+    padding-top: 0;
+    margin-top: 0;
+    padding-left: 0.5rem;
+  }
+}
