@@ -124,6 +124,48 @@ def export_csv(db: Session = Depends(get_db)):
     response.headers["Content-Disposition"] = f"attachment; filename=mailforge_health_report_{datetime.now().strftime('%Y-%m-%d')}.csv"
     return response
 
+@router.get("/export/issues")
+def export_issues(db: Session = Depends(get_db)):
+    import pandas as pd
+    import io
+    
+    issues = db.query(Issue).all()
+    open_issues = []
+    full_history = []
+    
+    for issue in issues:
+        domain_name = issue.domain.name if issue.domain else ""
+        mailbox_name = issue.mailbox.email if issue.mailbox else ""
+        asset = domain_name or mailbox_name
+        
+        row = {
+            "Severity": issue.severity,
+            "Asset": asset,
+            "Type": issue.issue_type,
+            "Description": issue.description,
+            "Recommendation": issue.recommendation,
+            "Status": issue.status,
+            "Detected Date": issue.detected_at.strftime("%Y-%m-%d %H:%M:%S") if issue.detected_at else "",
+            "Resolved Date": issue.resolved_at.strftime("%Y-%m-%d %H:%M:%S") if issue.resolved_at else ""
+        }
+        full_history.append(row)
+        if issue.status == "OPEN":
+            open_issues.append(row)
+            
+    df_open = pd.DataFrame(open_issues) if open_issues else pd.DataFrame(columns=["Severity", "Asset", "Type", "Description", "Recommendation", "Status", "Detected Date", "Resolved Date"])
+    df_history = pd.DataFrame(full_history) if full_history else pd.DataFrame(columns=["Severity", "Asset", "Type", "Description", "Recommendation", "Status", "Detected Date", "Resolved Date"])
+    
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_open.to_excel(writer, sheet_name="Open", index=False)
+        df_history.to_excel(writer, sheet_name="Full History", index=False)
+        
+    output.seek(0)
+    headers = {
+        'Content-Disposition': 'attachment; filename="mailforge_health_issues.xlsx"'
+    }
+    return StreamingResponse(output, headers=headers, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
 @router.get("/export/json")
 def export_json(db: Session = Depends(get_db)):
     domains = db.query(Domain).all()

@@ -81,10 +81,10 @@ class HealthScanner:
                 mailbox.mailforge_status = str(m_data.get("status", "UNKNOWN"))
         self.db.commit()
 
-    def _check_single_domain(self, domain_name: str):
+    def _check_single_domain(self, domain_name: str, receives_inbound: bool):
         dns_results = self.dns_checker.run_all(domain_name)
         blacklist_status = self.dns_checker.check_blacklists(domain_name)
-        smtp_results = self.dns_checker.check_smtp(domain_name)
+        smtp_results = self.dns_checker.check_smtp(domain_name, receives_inbound)
         dnssec_status = self.dns_checker.check_dnssec(domain_name)
         mta_sts_status = self.dns_checker.check_mta_sts(domain_name)
         tls_rpt_status = self.dns_checker.check_tls_rpt(domain_name)
@@ -95,37 +95,82 @@ class HealthScanner:
         self._update_progress(50, "Running DNS and infrastructure checks")
         domains = self.db.query(Domain).all()
         loop = asyncio.get_event_loop()
-        domain_futures = {d.id: (d, loop.run_in_executor(_scan_pool, self._check_single_domain, d.name)) for d in domains}
+        domain_futures = {d.id: (d, loop.run_in_executor(_scan_pool, self._check_single_domain, d.name, d.receives_inbound_mail)) for d in domains}
         
         for domain_id, (domain, future) in domain_futures.items():
             try:
                 result = await future
-                dns_results, blacklist_status, smtp_results, dnssec_status, mta_sts_status, tls_rpt_status, bimi_status = result["dns"], result["blacklist"], result["smtp"], result["dnssec"], result["mta_sts"], result["tls_rpt"], result["bimi"]
-                mx_health = "PASS" if dns_results["mx"] else "FAIL"
+                dns_results = result["dns"]
+                smtp_results = result["smtp"]
+                
+                mx_health = "PASS" if dns_results.get("mx") else "FAIL"
                 
                 check = DomainCheck(
-                    domain_id=domain.id, a_record=",".join(dns_results.get("a", [])), aaaa_record=",".join(dns_results.get("aaaa", [])),
-                    mx_record=",".join(dns_results.get("mx", [])), txt_record=",".join(dns_results.get("txt", [])), ns_record=",".join(dns_results.get("ns", [])),
-                    cname_record=",".join(dns_results.get("cname", [])), spf_status=dns_results.get("spf_status", "UNKNOWN"), dmarc_status=dns_results.get("dmarc_status", "UNKNOWN"),
-                    dkim_status=dns_results.get("dkim_status", "UNKNOWN"), dnssec_status=dnssec_status, mta_sts_status=mta_sts_status, tls_rpt_status=tls_rpt_status,
-                    bimi_status=bimi_status, blacklist_status=blacklist_status, smtp_status=smtp_results["smtp_status"], mx_health=mx_health
+                    domain_id=domain.id, 
+                    a_record=",".join(dns_results.get("a", [])), 
+                    aaaa_record=",".join(dns_results.get("aaaa", [])),
+                    mx_record=",".join(dns_results.get("mx", [])), 
+                    txt_record=",".join(dns_results.get("txt", [])), 
+                    ns_record=",".join(dns_results.get("ns", [])),
+                    cname_record=",".join(dns_results.get("cname", [])), 
+                    spf_status=dns_results.get("spf_status", "UNKNOWN"), 
+                    dmarc_status=dns_results.get("dmarc_status", "UNKNOWN"),
+                    dkim_status=dns_results.get("dkim_status", "UNKNOWN"), 
+                    dnssec_status=result["dnssec"], 
+                    mta_sts_status=result["mta_sts"], 
+                    tls_rpt_status=result["tls_rpt"],
+                    bimi_status=result["bimi"], 
+                    blacklist_status=result["blacklist"], 
+                    smtp_status=smtp_results["smtp_status"], 
+                    mx_health=mx_health
                 )
                 self.db.add(check)
                 
-                domain.health_score = calculate_domain_score({"mx_status": mx_health, "spf_status": check.spf_status, "dkim_status": check.dkim_status, "dmarc_status": check.dmarc_status, "blacklist_status": check.blacklist_status, "dnssec_status": dnssec_status, "mta_sts_status": check.mta_sts_status, "tls_status": smtp_results["tls_status"], "bimi_status": check.bimi_status, "smtp_status": check.smtp_status})
+                domain.health_score = calculate_domain_score({"mx_status": mx_health, "spf_status": check.spf_status, "dkim_status": check.dkim_status, "dmarc_status": check.dmarc_status, "blacklist_status": check.blacklist_status, "dnssec_status": check.dnssec_status, "mta_sts_status": check.mta_sts_status, "tls_status": smtp_results["tls_status"], "bimi_status": check.bimi_status, "smtp_status": check.smtp_status})
                 domain.status = get_health_category(domain.health_score)
                 domain.campaign_ready = domain.health_score >= 90 and (domain.mailforge_status or "").lower() == "active" and domain.status != "CRITICAL"
                 domain.last_checked = datetime.utcnow()
                 
-                # Handling Issues briefly...
-                self._resolve_issue(domain.id, None, "SPF") if check.spf_status == "PASS" else None
+                self._handle_issues(domain, check, smtp_results["tls_status"])
                 
             except Exception as e:
                 logger.error(f"Error checking domain {domain.name}: {e}")
                 
         self.db.commit()
 
-    async def check_all_mailboxes(self):
+    def _handle_issues(self, domain, check, tls_status):
+        try:
+            self._process_issue(domain.id, None, "SPF", check.spf_status == "FAIL", "SPF configuration is missing or invalid", "Configure a valid SPF TXT record for this domain.")
+            self._process_issue(domain.id, None, "DKIM", check.dkim_status == "FAIL", "DKIM configuration is missing or invalid", "Configure a valid DKIM TXT record for this domain.")
+            self._process_issue(domain.id, None, "DMARC", check.dmarc_status == "FAIL", "DMARC configuration is missing or invalid", "Configure a valid DMARC TXT record for this domain.")
+            self._process_issue(domain.id, None, "DNSSEC", check.dnssec_status == "FAIL", "DNSSEC is not enabled", "Enable DNSSEC with your registrar.", "LOW")
+            self._process_issue(domain.id, None, "MTA-STS", check.mta_sts_status == "FAIL", "MTA-STS policy is missing", "Deploy an MTA-STS policy file and DNS record.", "MEDIUM")
+            self._process_issue(domain.id, None, "TLS-RPT", check.tls_rpt_status == "FAIL", "TLS Reporting is not configured", "Add a TLS-RPT DNS record.", "LOW")
+            self._process_issue(domain.id, None, "BIMI", check.bimi_status == "FAIL", "BIMI is not configured", "Add a BIMI DNS record and logo.", "LOW")
+            self._process_issue(domain.id, None, "BLACKLIST", check.blacklist_status == "FAIL", "Domain is blacklisted", "Investigate and request delisting.", "CRITICAL")
+            
+            # SMTP Issue logic for receives_inbound_mail
+            if domain.receives_inbound_mail:
+                self._process_issue(domain.id, None, "SMTP", check.smtp_status == "FAIL", "SMTP connectivity failed on port 25", "Ensure port 25 is open for inbound mail.", "HIGH")
+            else:
+                self._process_issue(domain.id, None, "SMTP", check.smtp_status == "FAIL", "Outbound SMTP connectivity failed on port 587", "Ensure port 587 is available for mail submission.", "HIGH")
+                
+            self._process_issue(domain.id, None, "STARTTLS", tls_status == "FAIL", "STARTTLS is not supported", "Configure your mail server to support STARTTLS.", "HIGH")
+        except Exception as e:
+            logger.error(f"Error handling issues for {domain.name}: {e}")
+
+    def _process_issue(self, domain_id, mailbox_id, issue_type, is_failing, description, recommendation, severity="HIGH"):
+        existing = self.db.query(Issue).filter(Issue.domain_id == domain_id, Issue.mailbox_id == mailbox_id, Issue.issue_type == issue_type).order_by(Issue.id.desc()).first()
+        if is_failing:
+            if existing and existing.status == "OPEN":
+                existing.last_seen_at = datetime.utcnow()
+            else:
+                new_issue = Issue(domain_id=domain_id, mailbox_id=mailbox_id, issue_type=issue_type, description=description, recommendation=recommendation, severity=severity, status="OPEN", detected_at=datetime.utcnow(), last_seen_at=datetime.utcnow())
+                self.db.add(new_issue)
+        else:
+            if existing and existing.status == "OPEN":
+                existing.status = "RESOLVED"
+                existing.resolved_at = datetime.utcnow()
         self._update_progress(70, "Running mailbox verifications")
         for mb in self.db.query(Mailbox).all():
             domain = self.db.query(Domain).filter(Domain.id == mb.domain_id).first()

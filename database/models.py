@@ -14,6 +14,7 @@ class Domain(Base):
     campaign_ready = Column(Boolean, default=False)
     registrar = Column(String, nullable=True)
     expiration = Column(DateTime, nullable=True)
+    receives_inbound_mail = Column(Boolean, default=True)
     last_checked = Column(DateTime, default=datetime.utcnow)
     
     mailboxes = relationship("Mailbox", back_populates="domain")
@@ -109,6 +110,7 @@ class Issue(Base):
     status = Column(String) # OPEN, RESOLVED
     detected_at = Column(DateTime, default=datetime.utcnow)
     last_seen_at = Column(DateTime, default=datetime.utcnow)
+    resolved_at = Column(DateTime, nullable=True)
     
     domain = relationship("Domain", back_populates="issues")
     mailbox = relationship("Mailbox", back_populates="issues")

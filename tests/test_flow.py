@@ -53,3 +53,31 @@ def test_cron_scan_authorized():
     )
     assert response.json()["status"] == "success"
     assert "scan_id" in response.json()
+
+def test_scanner_issue_persistence():
+    from database.models import Domain, DomainCheck, Issue
+    from services.scanner import HealthScanner
+    import asyncio
+    db = next(get_db())
+    # Create test domain
+    test_domain = Domain(name="failtest.com", receives_inbound_mail=True, status="UNKNOWN", mailforge_status="UNKNOWN")
+    db.add(test_domain)
+    db.commit()
+    
+    # Manually run handle_issues simulating full failures
+    scanner = HealthScanner(db, None, "test_scan_id")
+    check = DomainCheck(
+        domain_id=test_domain.id, spf_status="FAIL", dkim_status="FAIL", dmarc_status="FAIL",
+        dnssec_status="FAIL", mta_sts_status="FAIL", tls_rpt_status="FAIL", bimi_status="FAIL",
+        blacklist_status="FAIL", smtp_status="FAIL", mx_health="FAIL"
+    )
+    db.add(check)
+    db.commit()
+    
+    scanner._handle_issues(test_domain, check, tls_status="FAIL")
+    db.commit()
+    
+    # Assert Issues were created
+    issues = db.query(Issue).filter(Issue.domain_id == test_domain.id).all()
+    assert len(issues) == 9 # SPF, DKIM, DMARC, DNSSEC, MTA-STS, TLS-RPT, BIMI, BLACKLIST, SMTP, STARTTLS (wait, 10 issues)
+    assert len(issues) == 10
