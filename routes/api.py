@@ -3,28 +3,24 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 import io
 import json
-import pandas as pd
 from datetime import datetime
-from reportlab.lib.pagesizes import letter
-from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 from database.database import get_db
 from database.models import Domain, Mailbox, Issue
-from services.scanner import HealthScanner
 from config.settings import settings
 
 router = APIRouter()
 
 @router.post("/scan/full")
 async def trigger_full_scan(db: Session = Depends(get_db)):
+    from services.scanner import HealthScanner
     scanner = HealthScanner(db, settings)
     await scanner.run_full_scan()
     return {"status": "success", "message": "Full scan completed successfully"}
 
 @router.post("/scan/domains")
 async def trigger_domain_scan(db: Session = Depends(get_db)):
+    from services.scanner import HealthScanner
     scanner = HealthScanner(db, settings)
     await scanner.sync_domains()
     await scanner.check_all_domains()
@@ -33,6 +29,7 @@ async def trigger_domain_scan(db: Session = Depends(get_db)):
 
 @router.post("/scan/mailboxes")
 async def trigger_mailbox_scan(db: Session = Depends(get_db)):
+    from services.scanner import HealthScanner
     scanner = HealthScanner(db, settings)
     await scanner.sync_mailboxes()
     await scanner.check_all_mailboxes()
@@ -41,6 +38,7 @@ async def trigger_mailbox_scan(db: Session = Depends(get_db)):
 
 @router.post("/scan/dns")
 async def trigger_dns_scan(db: Session = Depends(get_db)):
+    from services.scanner import HealthScanner
     scanner = HealthScanner(db, settings)
     await scanner.check_all_domains()
     await scanner.generate_snapshot()
@@ -50,6 +48,7 @@ async def trigger_dns_scan(db: Session = Depends(get_db)):
 
 @router.get("/export/csv")
 def export_csv(db: Session = Depends(get_db)):
+    import pandas as pd
     domains = db.query(Domain).all()
     data = []
     for d in domains:
@@ -119,6 +118,7 @@ def export_json(db: Session = Depends(get_db)):
 
 @router.get("/export/excel")
 def export_excel(db: Session = Depends(get_db)):
+    import pandas as pd
     domains = db.query(Domain).all()
     dom_data = [{
         "Domain": d.name,

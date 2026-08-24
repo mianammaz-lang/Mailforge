@@ -2,24 +2,35 @@ from sqlalchemy.orm import Session
 from database.models import Domain, Mailbox, DomainCheck, MailboxCheck, HealthSnapshot, Issue
 from services.mailforge import MailforgeClient
 from services.dns_checks import LocalDNSChecker
-from services.openrouter import OpenRouterAI
 from services.health_score import calculate_domain_score, calculate_mailbox_score, get_health_category
 from datetime import datetime
 import logging
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
 
 from services.settings_service import get_setting
+
+# Thread pool for running blocking DNS checks concurrently
+_scan_pool = ThreadPoolExecutor(max_workers=4)
 
 class HealthScanner:
     def __init__(self, db: Session, settings):
         self.db = db
         self.mailforge = MailforgeClient(get_setting(db, "mailforge_api_key", settings.MAILFORGE_API_KEY))
         self.dns_checker = LocalDNSChecker()
-        self.ai = OpenRouterAI(
-            get_setting(db, "openrouter_api_key", settings.OPENROUTER_API_KEY),
-            get_setting(db, "openrouter_model", settings.OPENROUTER_MODEL or 'meta-llama/llama-3.1-8b-instruct:free')
-        )
+        self.ai = None  # Lazy-load only when needed
+        self._settings = settings
+        
+    def _get_ai(self):
+        if self.ai is None:
+            from services.openrouter import OpenRouterAI
+            self.ai = OpenRouterAI(
+                get_setting(self.db, "openrouter_api_key", self._settings.OPENROUTER_API_KEY),
+                get_setting(self.db, "openrouter_model", self._settings.OPENROUTER_MODEL or 'meta-llama/llama-3.1-8b-instruct:free')
+            )
+        return self.ai
         
     async def sync_domains(self):
         logger.info("Syncing domains from Mailforge...")
@@ -106,20 +117,49 @@ class HealthScanner:
         self.db.commit()
         logger.info("Mailbox sync complete")
 
+    def _check_single_domain(self, domain_name: str):
+        """Run all DNS checks for a single domain (blocking, runs in thread pool)."""
+        dns_results = self.dns_checker.run_all(domain_name)
+        blacklist_status = self.dns_checker.check_blacklists(domain_name)
+        smtp_results = self.dns_checker.check_smtp(domain_name)
+        dnssec_status = self.dns_checker.check_dnssec(domain_name)
+        mta_sts_status = self.dns_checker.check_mta_sts(domain_name)
+        tls_rpt_status = self.dns_checker.check_tls_rpt(domain_name)
+        bimi_status = self.dns_checker.check_bimi(domain_name)
+        
+        return {
+            "dns": dns_results,
+            "blacklist": blacklist_status,
+            "smtp": smtp_results,
+            "dnssec": dnssec_status,
+            "mta_sts": mta_sts_status,
+            "tls_rpt": tls_rpt_status,
+            "bimi": bimi_status,
+        }
+
     async def check_all_domains(self):
         domains = self.db.query(Domain).all()
         logger.info(f"Running DNS checks on {len(domains)} domains...")
         
+        loop = asyncio.get_event_loop()
+        
+        # Run all domain checks concurrently in thread pool
+        domain_futures = {}
         for domain in domains:
+            future = loop.run_in_executor(_scan_pool, self._check_single_domain, domain.name)
+            domain_futures[domain.id] = (domain, future)
+        
+        # Gather all results
+        for domain_id, (domain, future) in domain_futures.items():
             try:
-                dns_results = self.dns_checker.run_all(domain.name)
-                
-                blacklist_status = self.dns_checker.check_blacklists(domain.name)
-                smtp_results = self.dns_checker.check_smtp(domain.name)
-                dnssec_status = self.dns_checker.check_dnssec(domain.name)
-                mta_sts_status = self.dns_checker.check_mta_sts(domain.name)
-                tls_rpt_status = self.dns_checker.check_tls_rpt(domain.name)
-                bimi_status = self.dns_checker.check_bimi(domain.name)
+                result = await future
+                dns_results = result["dns"]
+                blacklist_status = result["blacklist"]
+                smtp_results = result["smtp"]
+                dnssec_status = result["dnssec"]
+                mta_sts_status = result["mta_sts"]
+                tls_rpt_status = result["tls_rpt"]
+                bimi_status = result["bimi"]
                 
                 mx_health = "PASS" if dns_results["mx"] else "FAIL"
                 
@@ -172,64 +212,9 @@ class HealthScanner:
                     
                 domain.last_checked = datetime.utcnow()
                 
-                if check.spf_status == "FAIL":
-                    self._create_issue(domain.id, None, "HIGH", "SPF", f"SPF record missing or invalid for {domain.name}", "Publish a valid SPF record")
-                elif check.spf_status == "WARN":
-                    self._create_issue(domain.id, None, "MEDIUM", "SPF", f"SPF record uses a soft policy (~all) for {domain.name}", "Consider changing the policy to strict (-all)")
-                else:
-                    self._resolve_issue(domain.id, None, "SPF")
-                
-                if check.dmarc_status == "FAIL":
-                    self._create_issue(domain.id, None, "HIGH", "DMARC", f"DMARC record missing or invalid for {domain.name}", "Publish a valid DMARC record")
-                elif check.dmarc_status == "WARN":
-                    self._create_issue(domain.id, None, "MEDIUM", "DMARC", f"DMARC policy is set to p=none for {domain.name}", "Upgrade DMARC policy to p=quarantine or p=reject to enforce email authentication")
-                else:
-                    self._resolve_issue(domain.id, None, "DMARC")
-                
-                if mx_health == "FAIL":
-                    self._create_issue(domain.id, None, "CRITICAL", "MX", f"No MX records found for {domain.name}", "Configure MX records to handle incoming emails")
-                else:
-                    self._resolve_issue(domain.id, None, "MX")
-                
-                if check.dkim_status == "FAIL":
-                    self._create_issue(domain.id, None, "HIGH", "DKIM", f"DKIM records not found or invalid for {domain.name}", "Configure DKIM signing in your mail server and publish the public key record")
-                else:
-                    self._resolve_issue(domain.id, None, "DKIM")
-                
-                if check.blacklist_status == "FAIL":
-                    self._create_issue(domain.id, None, "CRITICAL", "BLACKLIST", f"Domain or IP is blacklisted for {domain.name}", "Check blacklist details and submit a delisting request")
-                else:
-                    self._resolve_issue(domain.id, None, "BLACKLIST")
-                    
-                if dnssec_status == "FAIL":
-                    self._create_issue(domain.id, None, "LOW", "DNSSEC", f"DNSSEC not enabled for {domain.name}", "Enable DNSSEC on your domain registrar to prevent DNS spoofing")
-                else:
-                    self._resolve_issue(domain.id, None, "DNSSEC")
-                    
-                if mta_sts_status == "FAIL":
-                    self._create_issue(domain.id, None, "LOW", "MTA-STS", f"MTA-STS is not configured for {domain.name}", "Configure MTA-STS to enforce encrypted SMTP connections")
-                else:
-                    self._resolve_issue(domain.id, None, "MTA-STS")
-                    
-                if tls_rpt_status == "FAIL":
-                    self._create_issue(domain.id, None, "LOW", "TLS-RPT", f"SMTP TLS Reporting (TLS-RPT) is not configured for {domain.name}", "Publish a _smtp._tls TXT record to receive TLS connectivity reports")
-                else:
-                    self._resolve_issue(domain.id, None, "TLS-RPT")
-                    
-                if bimi_status == "FAIL":
-                    self._create_issue(domain.id, None, "LOW", "BIMI", f"BIMI is not configured for {domain.name}", "Publish a BIMI DNS record to show your brand logo in supporting inbox clients")
-                else:
-                    self._resolve_issue(domain.id, None, "BIMI")
-                    
-                if smtp_results["smtp_status"] == "FAIL":
-                    self._create_issue(domain.id, None, "HIGH", "SMTP", f"SMTP server is offline or unreachable on port 25 for {domain.name}", "Verify your mail server is running and port 25 is open")
-                else:
-                    self._resolve_issue(domain.id, None, "SMTP")
-                    
-                if smtp_results["tls_status"] == "FAIL":
-                    self._create_issue(domain.id, None, "MEDIUM", "SMTP TLS", f"SMTP server does not support STARTTLS for {domain.name}", "Enable TLS/STARTTLS on your SMTP server to encrypt messages in transit")
-                else:
-                    self._resolve_issue(domain.id, None, "SMTP TLS")
+                # Create/resolve issues
+                self._handle_issues(domain, check, smtp_results, dnssec_status, 
+                                     mta_sts_status, tls_rpt_status, bimi_status, mx_health)
                 
             except Exception as e:
                 logger.error(f"Error checking domain {domain.name}: {e}")
@@ -238,6 +223,43 @@ class HealthScanner:
                 
         self.db.commit()
         logger.info("Domain checks complete")
+
+    def _handle_issues(self, domain, check, smtp_results, dnssec_status, 
+                       mta_sts_status, tls_rpt_status, bimi_status, mx_health):
+        """Create or resolve issues based on check results."""
+        issue_map = [
+            (check.spf_status, "SPF", "HIGH", f"SPF record missing or invalid for {domain.name}", "Publish a valid SPF record",
+             "MEDIUM", f"SPF record uses a soft policy (~all) for {domain.name}", "Consider changing the policy to strict (-all)"),
+            (check.dmarc_status, "DMARC", "HIGH", f"DMARC record missing or invalid for {domain.name}", "Publish a valid DMARC record",
+             "MEDIUM", f"DMARC policy is set to p=none for {domain.name}", "Upgrade DMARC policy to p=quarantine or p=reject"),
+            (check.dkim_status, "DKIM", "HIGH", f"DKIM records not found for {domain.name}", "Configure DKIM signing and publish the public key",
+             None, None, None),
+            (mx_health, "MX", "CRITICAL", f"No MX records found for {domain.name}", "Configure MX records",
+             None, None, None),
+            (check.blacklist_status, "BLACKLIST", "CRITICAL", f"Domain or IP is blacklisted for {domain.name}", "Submit a delisting request",
+             None, None, None),
+            (dnssec_status, "DNSSEC", "LOW", f"DNSSEC not enabled for {domain.name}", "Enable DNSSEC on your domain registrar",
+             None, None, None),
+            (mta_sts_status, "MTA-STS", "LOW", f"MTA-STS is not configured for {domain.name}", "Configure MTA-STS for encrypted SMTP",
+             None, None, None),
+            (tls_rpt_status, "TLS-RPT", "LOW", f"TLS-RPT is not configured for {domain.name}", "Publish a _smtp._tls TXT record",
+             None, None, None),
+            (bimi_status, "BIMI", "LOW", f"BIMI is not configured for {domain.name}", "Publish a BIMI DNS record",
+             None, None, None),
+            (check.smtp_status, "SMTP", "HIGH", f"SMTP server unreachable on port 25 for {domain.name}", "Verify mail server is running",
+             None, None, None),
+            (smtp_results["tls_status"], "SMTP TLS", "MEDIUM", f"SMTP does not support STARTTLS for {domain.name}", "Enable STARTTLS on your SMTP server",
+             None, None, None),
+        ]
+        
+        for item in issue_map:
+            status, itype, fail_sev, fail_desc, fail_rec, warn_sev, warn_desc, warn_rec = item
+            if status == "FAIL":
+                self._create_issue(domain.id, None, fail_sev, itype, fail_desc, fail_rec)
+            elif status == "WARN" and warn_sev:
+                self._create_issue(domain.id, None, warn_sev, itype, warn_desc, warn_rec)
+            else:
+                self._resolve_issue(domain.id, None, itype)
 
     async def check_all_mailboxes(self):
         mailboxes = self.db.query(Mailbox).all()
@@ -320,7 +342,6 @@ class HealthScanner:
         ).first()
         if existing:
             existing.status = "RESOLVED"
-            logger.info(f"Resolved issue: {issue_type} for domain_id {domain_id}")
 
     async def generate_snapshot(self):
         domains = self.db.query(Domain).all()
@@ -347,7 +368,7 @@ class HealthScanner:
         )
         self.db.add(snap)
         self.db.commit()
-        logger.info(f"Snapshot generated")
+        logger.info("Snapshot generated")
 
     async def run_full_scan(self):
         logger.info("=== FULL SCAN STARTED ===")

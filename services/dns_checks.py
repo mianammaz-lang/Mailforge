@@ -4,26 +4,30 @@ import dns.message
 import dns.query
 import dns.flags
 import dns.rdatatype
-import smtplib
+import socket
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
+
+# Shared thread pool for parallel DNS / network lookups
+_executor = ThreadPoolExecutor(max_workers=8)
 
 class LocalDNSChecker:
     def __init__(self):
         self.resolver = dns.resolver.Resolver()
-        self.resolver.timeout = 5
-        self.resolver.lifetime = 5
+        self.resolver.timeout = 3
+        self.resolver.lifetime = 3
         
     def _safe_resolve(self, domain: str, rdtype: str) -> List[str]:
         try:
             answers = self.resolver.resolve(domain, rdtype)
             return [str(rdata).strip('"') for rdata in answers]
-        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.exception.Timeout, dns.resolver.NoNameservers, dns.name.EmptyLabel):
+        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.exception.Timeout,
+                dns.resolver.NoNameservers, dns.name.EmptyLabel):
             return []
-        except Exception as e:
-            logger.debug(f"DNS resolution error for {domain} ({rdtype}): {e}")
+        except Exception:
             return []
 
     def get_a(self, domain: str) -> List[str]:
@@ -44,8 +48,8 @@ class LocalDNSChecker:
     def get_cname(self, domain: str) -> List[str]:
         return self._safe_resolve(domain, "CNAME")
 
-    def check_spf(self, domain: str) -> str:
-        txt_records = self.get_txt(domain)
+    def check_spf(self, txt_records: List[str]) -> str:
+        """Check SPF from pre-fetched TXT records (avoids duplicate query)."""
         for record in txt_records:
             if record.startswith("v=spf1"):
                 if "-all" in record:
@@ -56,9 +60,8 @@ class LocalDNSChecker:
         return "FAIL"
 
     def check_dmarc(self, domain: str) -> str:
-        dmarc_domain = f"_dmarc.{domain}"
-        txt_records = self.get_txt(dmarc_domain)
-        for record in txt_records:
+        records = self._safe_resolve(f"_dmarc.{domain}", "TXT")
+        for record in records:
             if record.startswith("v=DMARC1"):
                 if "p=reject" in record or "p=quarantine" in record:
                     return "PASS"
@@ -66,22 +69,36 @@ class LocalDNSChecker:
                     return "WARN"
         return "FAIL"
 
+    def _check_dkim_selector(self, domain: str, sel: str) -> bool:
+        """Check a single DKIM selector. Returns True if found."""
+        records = self._safe_resolve(f"{sel}._domainkey.{domain}", "TXT")
+        for r in records:
+            if "v=DKIM1" in r or "p=" in r:
+                return True
+        return False
+
     def check_dkim(self, domain: str) -> str:
-        selectors = ["default", "mail", "google", "selector1", "selector2", "s1", "s2", "dkim", "k1", "mxvault"]
-        for sel in selectors:
-            records = self.get_txt(f"{sel}._domainkey.{domain}")
-            for r in records:
-                if "v=DKIM1" in r or "p=" in r:
+        """Check DKIM in parallel across common selectors."""
+        selectors = ["default", "google", "selector1", "selector2", "s1", "dkim", "mail", "k1"]
+        futures = {_executor.submit(self._check_dkim_selector, domain, sel): sel for sel in selectors}
+        for future in as_completed(futures, timeout=6):
+            try:
+                if future.result():
+                    # Cancel remaining futures
+                    for f in futures:
+                        f.cancel()
                     return "PASS"
+            except Exception:
+                pass
         return "FAIL"
 
     def check_dnssec(self, domain: str) -> str:
         try:
             req = dns.message.make_query(domain, dns.rdatatype.A, want_dnssec=True)
-            nameservers = dns.resolver.Resolver().nameservers
+            nameservers = self.resolver.nameservers
             if not nameservers:
                 return "UNKNOWN"
-            res = dns.query.udp(req, nameservers[0], timeout=5)
+            res = dns.query.udp(req, nameservers[0], timeout=3)
             if res.flags & dns.flags.AD:
                 return "PASS"
             return "FAIL"
@@ -89,43 +106,53 @@ class LocalDNSChecker:
             return "UNKNOWN"
 
     def check_mta_sts(self, domain: str) -> str:
-        records = self.get_txt(f"_mta-sts.{domain}")
+        records = self._safe_resolve(f"_mta-sts.{domain}", "TXT")
         for r in records:
             if r.startswith("v=STSv1"):
                 return "PASS"
         return "FAIL"
 
     def check_tls_rpt(self, domain: str) -> str:
-        records = self.get_txt(f"_smtp._tls.{domain}")
+        records = self._safe_resolve(f"_smtp._tls.{domain}", "TXT")
         for r in records:
             if r.startswith("v=TLSRPTv1"):
                 return "PASS"
         return "FAIL"
 
     def check_bimi(self, domain: str) -> str:
-        records = self.get_txt(f"default._bimi.{domain}")
+        records = self._safe_resolve(f"default._bimi.{domain}", "TXT")
         for r in records:
             if r.startswith("v=BIMI1"):
                 return "PASS"
         return "FAIL"
 
+    def _check_single_blacklist(self, reversed_ip: str, bl: str) -> bool:
+        """Check one blacklist. Returns True if listed (bad)."""
+        try:
+            self.resolver.resolve(f"{reversed_ip}.{bl}", "A")
+            return True
+        except Exception:
+            return False
+
     def check_blacklists(self, domain: str) -> str:
-        bls = ["zen.spamhaus.org", "bl.spamcop.net", "b.barracudacentral.org", "dnsbl.sorbs.net", "spam.dnsbl.sorbs.net"]
+        """Check blacklists in parallel."""
+        bls = ["zen.spamhaus.org", "bl.spamcop.net", "b.barracudacentral.org"]
         ips = self.get_a(domain)
         if not ips:
             return "UNKNOWN"
-        ip = ips[0]
-        reversed_ip = ".".join(reversed(ip.split(".")))
-        for bl in bls:
+        reversed_ip = ".".join(reversed(ips[0].split(".")))
+        
+        futures = {_executor.submit(self._check_single_blacklist, reversed_ip, bl): bl for bl in bls}
+        for future in as_completed(futures, timeout=6):
             try:
-                ans = self.resolver.resolve(f"{reversed_ip}.{bl}", "A")
-                if ans:
+                if future.result():
                     return "FAIL"
             except Exception:
                 pass
         return "PASS"
 
     def check_smtp(self, domain: str) -> Dict[str, str]:
+        """Quick SMTP check with tight 3s timeout."""
         mx_records = self.get_mx(domain)
         if not mx_records:
             return {"smtp_status": "FAIL", "tls_status": "FAIL"}
@@ -137,30 +164,48 @@ class LocalDNSChecker:
         except Exception:
             mx_host = mx_records[0].split()[-1].strip('.')
 
+        # Quick TCP connect check instead of full SMTP conversation
         smtp_status = "FAIL"
         tls_status = "FAIL"
         try:
-            server = smtplib.SMTP(mx_host, 25, timeout=5)
+            sock = socket.create_connection((mx_host, 25), timeout=3)
             smtp_status = "PASS"
-            server.ehlo_or_helo_if_needed()
-            if server.has_extn('STARTTLS'):
-                server.starttls()
+            # Read banner
+            data = sock.recv(1024).decode('utf-8', errors='ignore')
+            # Send EHLO
+            sock.sendall(b"EHLO healthcheck\r\n")
+            data = sock.recv(1024).decode('utf-8', errors='ignore')
+            if "STARTTLS" in data:
                 tls_status = "PASS"
-            server.quit()
-        except Exception as e:
-            logger.debug(f"SMTP check error for {domain}: {e}")
+            sock.sendall(b"QUIT\r\n")
+            sock.close()
+        except Exception:
+            pass
             
         return {"smtp_status": smtp_status, "tls_status": tls_status}
 
     def run_all(self, domain: str) -> Dict:
-        return {
-            "a": self.get_a(domain),
-            "aaaa": self.get_aaaa(domain),
-            "mx": self.get_mx(domain),
-            "txt": self.get_txt(domain),
-            "ns": self.get_ns(domain),
-            "cname": self.get_cname(domain),
-            "spf_status": self.check_spf(domain),
-            "dmarc_status": self.check_dmarc(domain),
-            "dkim_status": self.check_dkim(domain),
-        }
+        """Run all basic DNS record lookups. SPF/DKIM/DMARC run separately in check_all_domains."""
+        # Fetch base records in parallel
+        record_types = {"a": "A", "aaaa": "AAAA", "mx": "MX", "txt": "TXT", "ns": "NS", "cname": "CNAME"}
+        results = {}
+        futures = {_executor.submit(self._safe_resolve, domain, rdtype): key 
+                   for key, rdtype in record_types.items()}
+        
+        for future in as_completed(futures, timeout=8):
+            key = futures[future]
+            try:
+                results[key] = future.result()
+            except Exception:
+                results[key] = []
+        
+        # Ensure all keys present
+        for key in record_types:
+            results.setdefault(key, [])
+        
+        # SPF uses already-fetched TXT records (no extra query)
+        results["spf_status"] = self.check_spf(results["txt"])
+        results["dmarc_status"] = self.check_dmarc(domain)
+        results["dkim_status"] = self.check_dkim(domain)
+        
+        return results

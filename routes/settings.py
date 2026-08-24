@@ -65,9 +65,9 @@ async def fetch_models():
                 for m in data.get("data", [])
                 if m["id"].endswith(":free")
             ]
-            return {"models": models}
+            return {"status": "success", "models": models}
     except Exception as e:
-        return {"error": str(e), "models": []}
+        return {"status": "error", "message": str(e), "models": []}
 
 @router.get("/providers")
 def get_providers(request: Request, db: Session = Depends(get_db)):
@@ -118,11 +118,36 @@ def get_providers(request: Request, db: Session = Depends(get_db)):
 @router.get("/instantly/tests")
 async def get_instantly_tests(db: Session = Depends(get_db)):
     instantly_api_key = get_setting(db, "instantly_api_key") or getattr(settings, "INSTANTLY_API_KEY", None)
+    if not instantly_api_key:
+        return {"status": "error", "message": "Instantly API key not configured. Add it in Settings.", "tests": []}
     client = InstantlyClient(api_key=instantly_api_key)
-    return await client.list_tests()
+    try:
+        tests = await client.list_tests()
+        # Instantly API may return a dict with items key or a raw list
+        if isinstance(tests, dict):
+            test_list = tests.get("items", tests.get("data", []))
+        elif isinstance(tests, list):
+            test_list = tests
+        else:
+            test_list = []
+        return {"status": "success", "tests": test_list}
+    except Exception as e:
+        return {"status": "error", "message": str(e), "tests": []}
 
 @router.get("/instantly/analytics")
 async def get_instantly_analytics(db: Session = Depends(get_db)):
     instantly_api_key = get_setting(db, "instantly_api_key") or getattr(settings, "INSTANTLY_API_KEY", None)
+    if not instantly_api_key:
+        return {"status": "error", "message": "Instantly API key not configured.", "analytics": []}
     client = InstantlyClient(api_key=instantly_api_key)
-    return await client.get_analytics()
+    try:
+        analytics = await client.get_analytics()
+        if isinstance(analytics, dict):
+            analytics_list = analytics.get("items", analytics.get("data", []))
+        elif isinstance(analytics, list):
+            analytics_list = analytics
+        else:
+            analytics_list = []
+        return {"status": "success", "analytics": analytics_list}
+    except Exception as e:
+        return {"status": "error", "message": str(e), "analytics": []}
