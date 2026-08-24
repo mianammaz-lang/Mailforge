@@ -119,3 +119,45 @@ class SystemSetting(Base):
     key = Column(String, unique=True, index=True)
     value = Column(String, nullable=True)
 
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True)
+    password_hash = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class ScanRun(Base):
+    __tablename__ = "scan_runs"
+    id = Column(String, primary_key=True, index=True)  # UUID string
+    status = Column(String)  # QUEUED, RUNNING, COMPLETED, FAILED
+    progress = Column(Integer, default=0)
+    current_stage = Column(String)
+    started_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+    error_message = Column(Text, nullable=True)
+    environment = Column(String)
+
+class ProviderRun(Base):
+    __tablename__ = "provider_runs"
+    id = Column(Integer, primary_key=True, index=True)
+    scan_id = Column(String, ForeignKey("scan_runs.id"))
+    provider = Column(String)
+    status = Column(String)  # CONNECTED, RUNNING, COMPLETED, DEGRADED, FAILED, NOT_CONFIGURED
+    response_time_ms = Column(Float, nullable=True)
+    started_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+    error = Column(Text, nullable=True)
+    
+class InstantlyTest(Base):
+    __tablename__ = "instantly_tests"
+    id = Column(Integer, primary_key=True, index=True)
+    test_id = Column(String, index=True)
+    scan_id = Column(String, ForeignKey("scan_runs.id"), nullable=True)
+    status = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+    inbox_percentage = Column(Float, nullable=True)
+    spam_percentage = Column(Float, nullable=True)
+    missing_percentage = Column(Float, nullable=True)
+    raw_results = Column(Text, nullable=True)
+

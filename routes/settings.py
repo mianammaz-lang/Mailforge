@@ -11,6 +11,11 @@ from services.instantly import InstantlyClient
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
+def obfuscate_key(key: str) -> str:
+    if not key: return ""
+    if len(key) <= 8: return "••••••••"
+    return "••••••••" + key[-4:]
+
 @router.get("/")
 def get_settings(request: Request, db: Session = Depends(get_db)):
     mailforge_api_key = get_setting(db, "mailforge_api_key") or settings.MAILFORGE_API_KEY
@@ -24,9 +29,9 @@ def get_settings(request: Request, db: Session = Depends(get_db)):
         {
             "request": request,
             "active_page": "settings",
-            "mailforge_api_key": mailforge_api_key,
-            "instantly_api_key": instantly_api_key,
-            "openrouter_api_key": openrouter_api_key,
+            "mailforge_api_key": obfuscate_key(mailforge_api_key),
+            "instantly_api_key": obfuscate_key(instantly_api_key),
+            "openrouter_api_key": obfuscate_key(openrouter_api_key),
             "openrouter_model": openrouter_model,
             "scan_interval": scan_interval,
         },
@@ -41,9 +46,9 @@ def save_settings(
     scan_interval: str = Form(""),
     db: Session = Depends(get_db)
 ):
-    set_setting(db, "mailforge_api_key", mailforge_api_key.strip())
-    set_setting(db, "instantly_api_key", instantly_api_key.strip())
-    set_setting(db, "openrouter_api_key", openrouter_api_key.strip())
+    if not mailforge_api_key.startswith("••••"): set_setting(db, "mailforge_api_key", mailforge_api_key.strip())
+    if not instantly_api_key.startswith("••••"): set_setting(db, "instantly_api_key", instantly_api_key.strip())
+    if not openrouter_api_key.startswith("••••"): set_setting(db, "openrouter_api_key", openrouter_api_key.strip())
     set_setting(db, "openrouter_model", openrouter_model.strip())
     set_setting(db, "scan_interval", scan_interval.strip())
     return RedirectResponse(url="/settings", status_code=303)

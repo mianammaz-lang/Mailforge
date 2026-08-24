@@ -11,38 +11,83 @@ from config.settings import settings
 
 router = APIRouter()
 
+import uuid
+from fastapi import BackgroundTasks
+from database.models import ScanRun
+
+async def run_scan_in_background(scan_id: str, db_generator):
+    db = next(db_generator())
+    scan_run = db.query(ScanRun).filter(ScanRun.id == scan_id).first()
+    if not scan_run:
+        db.close()
+        return
+
+    from services.scanner import HealthScanner
+    try:
+        scan_run.status = "RUNNING"
+        scan_run.progress = 10
+        scan_run.current_stage = "Initializing"
+        db.commit()
+
+        scanner = HealthScanner(db, settings, scan_id)
+        await scanner.run_full_scan()
+
+        scan_run.status = "COMPLETED"
+        scan_run.progress = 100
+        scan_run.current_stage = "Completed"
+        scan_run.completed_at = datetime.utcnow()
+        db.commit()
+    except Exception as e:
+        scan_run.status = "FAILED"
+        scan_run.error_message = str(e)
+        scan_run.completed_at = datetime.utcnow()
+        db.commit()
+    finally:
+        db.close()
+
 @router.post("/scan/full")
-async def trigger_full_scan(db: Session = Depends(get_db)):
-    from services.scanner import HealthScanner
-    scanner = HealthScanner(db, settings)
-    await scanner.run_full_scan()
-    return {"status": "success", "message": "Full scan completed successfully"}
+async def trigger_full_scan(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    scan_id = str(uuid.uuid4())
+    scan_run = ScanRun(id=scan_id, status="QUEUED", progress=0, current_stage="Queued")
+    db.add(scan_run)
+    db.commit()
 
-@router.post("/scan/domains")
-async def trigger_domain_scan(db: Session = Depends(get_db)):
-    from services.scanner import HealthScanner
-    scanner = HealthScanner(db, settings)
-    await scanner.sync_domains()
-    await scanner.check_all_domains()
-    await scanner.generate_snapshot()
-    return {"status": "success", "message": "Domain scan completed"}
+    background_tasks.add_task(run_scan_in_background, scan_id, get_db)
+    
+    return {"status": "success", "scan_id": scan_id}
 
-@router.post("/scan/mailboxes")
-async def trigger_mailbox_scan(db: Session = Depends(get_db)):
-    from services.scanner import HealthScanner
-    scanner = HealthScanner(db, settings)
-    await scanner.sync_mailboxes()
-    await scanner.check_all_mailboxes()
-    await scanner.generate_snapshot()
-    return {"status": "success", "message": "Mailbox scan completed"}
+@router.post("/scan/cron")
+async def trigger_cron_scan(request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    auth_header = request.headers.get("Authorization")
+    cron_secret = getattr(settings, "CRON_SECRET", "default-cron-secret")
+    
+    if auth_header != f"Bearer {cron_secret}":
+        return {"status": "error", "message": "Unauthorized"}
+        
+    scan_id = str(uuid.uuid4())
+    scan_run = ScanRun(id=scan_id, status="QUEUED", progress=0, current_stage="Queued", environment="cron")
+    db.add(scan_run)
+    db.commit()
 
-@router.post("/scan/dns")
-async def trigger_dns_scan(db: Session = Depends(get_db)):
-    from services.scanner import HealthScanner
-    scanner = HealthScanner(db, settings)
-    await scanner.check_all_domains()
-    await scanner.generate_snapshot()
-    return {"status": "success", "message": "DNS checks completed"}
+    background_tasks.add_task(run_scan_in_background, scan_id, get_db)
+    return {"status": "success", "scan_id": scan_id}
+
+@router.get("/scan/status/{scan_id}")
+def get_scan_status(scan_id: str, db: Session = Depends(get_db)):
+    scan_run = db.query(ScanRun).filter(ScanRun.id == scan_id).first()
+    if not scan_run:
+        return {"status": "error", "message": "Scan ID not found"}
+        
+    return {
+        "scan_id": scan_run.id,
+        "status": scan_run.status,
+        "progress": scan_run.progress,
+        "current_stage": scan_run.current_stage,
+        "started_at": scan_run.started_at,
+        "completed_at": scan_run.completed_at,
+        "error": scan_run.error_message
+    }
+
 
 # EXPORTS
 

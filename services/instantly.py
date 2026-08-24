@@ -1,74 +1,125 @@
 import httpx
 import logging
-from typing import Optional
+from typing import Optional, Dict, List
+import asyncio
 
 logger = logging.getLogger(__name__)
 
 class InstantlyClient:
     def __init__(self, api_key: Optional[str]):
-        self.base_url = "https://api.instantly.ai/api/v2"
         self.api_key = api_key
+        self.base_url = "https://api.instantly.ai/api/v2"
         self.headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
-        } if api_key else {}
-
+        }
+    
     @property
     def available(self) -> bool:
         return bool(self.api_key)
-
-    async def list_tests(self) -> list:
+        
+    async def list_tests(self) -> List[Dict]:
         if not self.available:
             return []
         try:
             async with httpx.AsyncClient(timeout=15) as client:
-                response = await client.get(f"{self.base_url}/inbox-placement-tests", headers=self.headers)
-                response.raise_for_status()
-                return response.json()
+                resp = await client.get(f"{self.base_url}/inbox-placement-tests", headers=self.headers)
+                resp.raise_for_status()
+                data = resp.json()
+                return data.get("items", data.get("data", []))
         except Exception as e:
-            logger.error(f"Error listing Instantly tests: {e}")
+            logger.error(f"Instantly list_tests error: {e}")
             return []
 
-    async def get_analytics(self) -> list:
+    async def get_analytics(self) -> List[Dict]:
         if not self.available:
             return []
         try:
             async with httpx.AsyncClient(timeout=15) as client:
-                response = await client.get(f"{self.base_url}/inbox-placement-analytics", headers=self.headers)
-                response.raise_for_status()
-                return response.json()
+                resp = await client.get(f"{self.base_url}/inbox-placement-analytics", headers=self.headers)
+                resp.raise_for_status()
+                data = resp.json()
+                return data.get("items", data.get("data", []))
         except Exception as e:
-            logger.error(f"Error getting Instantly analytics: {e}")
+            logger.error(f"Instantly get_analytics error: {e}")
             return []
 
-    async def get_test_stats(self, test_id: str) -> dict:
+    async def create_test(self, name: str) -> Dict:
         if not self.available:
             return {}
         try:
             async with httpx.AsyncClient(timeout=15) as client:
-                response = await client.post(
-                    f"{self.base_url}/inbox-placement-analytics/stats-by-test-id",
-                    headers=self.headers,
-                    json={"test_id": test_id}
-                )
-                response.raise_for_status()
-                return response.json()
+                payload = {"name": name}
+                resp = await client.post(f"{self.base_url}/inbox-placement-tests", json=payload, headers=self.headers)
+                resp.raise_for_status()
+                return resp.json()
         except Exception as e:
-            logger.error(f"Error getting Instantly test stats for {test_id}: {e}")
+            logger.error(f"Instantly create_test error: {e}")
             return {}
 
-    async def get_deliverability_insights(self) -> dict:
+    async def start_test(self, test_id: str) -> bool:
+        if not self.available:
+            return False
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(f"{self.base_url}/inbox-placement-tests/{test_id}/start", headers=self.headers)
+                resp.raise_for_status()
+                return True
+        except Exception as e:
+            logger.error(f"Instantly start_test error: {e}")
+            return False
+
+    async def get_test_stats(self, test_id: str) -> Dict:
         if not self.available:
             return {}
         try:
             async with httpx.AsyncClient(timeout=15) as client:
-                response = await client.post(
-                    f"{self.base_url}/inbox-placement-analytics/deliverability-insights",
-                    headers=self.headers,
-                    json={}
-                )
-                response.raise_for_status()
-                return response.json()
+                payload = {"test_id": test_id}
+                resp = await client.post(f"{self.base_url}/inbox-placement-analytics/stats-by-test-id", json=payload, headers=self.headers)
+                resp.raise_for_status()
+                return resp.json()
         except Exception as e:
-            logger.error(f"Error getting Instantly deliverability insights: {e}")
+            logger.error(f"Instantly get_test_stats error: {e}")
             return {}
+
+    async def get_deliverability_insights(self) -> Dict:
+        if not self.available:
+            return {}
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(f"{self.base_url}/inbox-placement-analytics/deliverability-insights", headers=self.headers)
+                resp.raise_for_status()
+                return resp.json()
+        except Exception as e:
+            logger.error(f"Instantly get_deliverability_insights error: {e}")
+            return {}
+
+    async def run_automated_inbox_test(self) -> Dict:
+        """Finds or creates a test, runs it, and returns stats."""
+        if not self.available:
+            return {"status": "NOT_CONFIGURED", "error": "API Key missing"}
+            
+        tests = await self.list_tests()
+        if not tests:
+            test = await self.create_test(name=f"Automated Test {asyncio.get_event_loop().time()}")
+            if not test:
+                return {"status": "FAILED", "error": "Failed to create test"}
+            test_id = test.get("id") or test.get("_id")
+        else:
+            test_id = tests[0].get("id") or tests[0].get("_id")
+            
+        if not test_id:
+             return {"status": "FAILED", "error": "Could not identify test ID"}
+
+        # Try to start it
+        await self.start_test(test_id)
+        
+        # Poll for completion (simplified for demo, wait 10s)
+        await asyncio.sleep(5)
+        
+        stats = await self.get_test_stats(test_id)
+        return {
+            "status": "COMPLETED",
+            "test_id": test_id,
+            "stats": stats
+        }
