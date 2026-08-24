@@ -45,6 +45,23 @@ async def run_scan_in_background(scan_id: str, db_generator):
     finally:
         db.close()
 
+@router.get("/api/domain/{domain_id}/reputation")
+async def get_domain_reputation(domain_id: int, db: Session = Depends(get_db)):
+    domain = db.query(Domain).filter(Domain.id == domain_id).first()
+    if not domain or not domain.checks:
+        return {"error": "Domain not found or no checks available"}
+    check = domain.checks[-1]
+    return {
+        "domain": domain.name,
+        "resolution": {
+            "resolved_ips": check.resolved_ips or []
+        },
+        "blacklist": check.blacklist_details or {},
+        "ip_reputation": check.ip_reputation or [],
+        "overall_status": check.blacklist_status,
+        "scan_timestamp": check.timestamp.isoformat()
+    }
+
 @router.post("/scan/full")
 async def trigger_full_scan(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     scan_id = str(uuid.uuid4())

@@ -83,25 +83,87 @@ class HealthScanner:
 
     def _check_single_domain(self, domain_name: str, receives_inbound: bool):
         dns_results = self.dns_checker.run_all(domain_name)
-        blacklist_status = self.dns_checker.check_blacklists(domain_name)
         smtp_results = self.dns_checker.check_smtp(domain_name, receives_inbound)
         dnssec_status = self.dns_checker.check_dnssec(domain_name)
         mta_sts_status = self.dns_checker.check_mta_sts(domain_name)
         tls_rpt_status = self.dns_checker.check_tls_rpt(domain_name)
         bimi_status = self.dns_checker.check_bimi(domain_name)
-        return {"dns": dns_results, "blacklist": blacklist_status, "smtp": smtp_results, "dnssec": dnssec_status, "mta_sts": mta_sts_status, "tls_rpt": tls_rpt_status, "bimi": bimi_status}
+        
+        resolved_ips = self.dns_checker.resolve_domain_ips(domain_name)
+        
+        from config.blacklist_providers import BLACKLIST_PROVIDERS
+        provider_results = []
+        
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        with ThreadPoolExecutor(max_workers=15) as bl_executor:
+            futures = []
+            
+            # DNSBLs for IPs
+            for ip in resolved_ips:
+                for p in BLACKLIST_PROVIDERS:
+                    if p["enabled"] and p["type"] == "IP":
+                        futures.append(bl_executor.submit(
+                            lambda ip_arg=ip, p_arg=p: {**self.dns_checker.check_ip_dnsbl(ip_arg, p_arg["zone"], p_arg.get("timeout_ms", 3000)), "provider": p_arg["name"], "category": "IP_BLACKLIST", "ip": ip_arg}
+                        ))
+                        
+            # DBLs for Domain
+            for p in BLACKLIST_PROVIDERS:
+                if p["enabled"] and p["type"] == "DOMAIN":
+                    futures.append(bl_executor.submit(
+                        lambda p_arg=p: {**self.dns_checker.check_domain_dbl(domain_name, p_arg["zone"], p_arg.get("timeout_ms", 3000)), "provider": p_arg["name"], "category": "DOMAIN_BLACKLIST", "ip": None}
+                    ))
+                    
+            for f in as_completed(futures):
+                try:
+                    provider_results.append(f.result())
+                except Exception:
+                    pass
+                    
+        return {
+            "dns": dns_results, 
+            "smtp": smtp_results, 
+            "dnssec": dnssec_status, 
+            "mta_sts": mta_sts_status, 
+            "tls_rpt": tls_rpt_status, 
+            "bimi": bimi_status,
+            "resolved_ips": resolved_ips,
+            "provider_results": provider_results
+        }
 
     async def check_all_domains(self):
+        from services.reputation_engine import calculate_reputation_status
+        from services.abuseipdb import AbuseIPDBClient
+        from config.settings import settings
+        
         self._update_progress(50, "Running DNS and infrastructure checks")
         domains = self.db.query(Domain).all()
         loop = asyncio.get_event_loop()
+        
+        # Shared cache for the scan run to prevent duplicate checks
+        _abuseipdb_cache = {}
+        
         domain_futures = {d.id: (d, loop.run_in_executor(_scan_pool, self._check_single_domain, d.name, d.receives_inbound_mail)) for d in domains}
+        
+        abuse_client = AbuseIPDBClient(api_key=settings.ABUSEIPDB_API_KEY)
         
         for domain_id, (domain, future) in domain_futures.items():
             try:
                 result = await future
                 dns_results = result["dns"]
                 smtp_results = result["smtp"]
+                resolved_ips = result["resolved_ips"]
+                provider_results = result["provider_results"]
+                
+                # Check AbuseIPDB for each IP asynchronously with caching
+                ip_reputation_data = []
+                for ip in resolved_ips:
+                    if ip not in _abuseipdb_cache:
+                        _abuseipdb_cache[ip] = await abuse_client.check_ip(ip)
+                    ip_reputation_data.append(_abuseipdb_cache[ip])
+                    
+                # Calculate final reputation status
+                reputation = calculate_reputation_status(provider_results)
+                final_blacklist_status = reputation["status"]
                 
                 mx_health = "PASS" if dns_results.get("mx") else "FAIL"
                 
@@ -120,13 +182,16 @@ class HealthScanner:
                     mta_sts_status=result["mta_sts"], 
                     tls_rpt_status=result["tls_rpt"],
                     bimi_status=result["bimi"], 
-                    blacklist_status=result["blacklist"], 
+                    blacklist_status=final_blacklist_status,
+                    blacklist_details=reputation,
+                    ip_reputation=ip_reputation_data,
+                    resolved_ips=resolved_ips,
                     smtp_status=smtp_results["smtp_status"], 
                     mx_health=mx_health
                 )
                 self.db.add(check)
                 
-                domain.health_score = calculate_domain_score({"mx_status": mx_health, "spf_status": check.spf_status, "dkim_status": check.dkim_status, "dmarc_status": check.dmarc_status, "blacklist_status": check.blacklist_status, "dnssec_status": check.dnssec_status, "mta_sts_status": check.mta_sts_status, "tls_status": smtp_results["tls_status"], "bimi_status": check.bimi_status, "smtp_status": check.smtp_status})
+                domain.health_score = calculate_domain_score({"mx_status": mx_health, "spf_status": check.spf_status, "dkim_status": check.dkim_status, "dmarc_status": check.dmarc_status, "blacklist_status": final_blacklist_status, "dnssec_status": check.dnssec_status, "mta_sts_status": check.mta_sts_status, "tls_status": smtp_results["tls_status"], "bimi_status": check.bimi_status, "smtp_status": check.smtp_status})
                 domain.status = get_health_category(domain.health_score)
                 domain.campaign_ready = domain.health_score >= 90 and (domain.mailforge_status or "").lower() == "active" and domain.status != "CRITICAL"
                 domain.last_checked = datetime.utcnow()
@@ -147,7 +212,7 @@ class HealthScanner:
             self._process_issue(domain.id, None, "MTA-STS", check.mta_sts_status == "FAIL", "MTA-STS policy is missing", "Deploy an MTA-STS policy file and DNS record.", "MEDIUM")
             self._process_issue(domain.id, None, "TLS-RPT", check.tls_rpt_status == "FAIL", "TLS Reporting is not configured", "Add a TLS-RPT DNS record.", "LOW")
             self._process_issue(domain.id, None, "BIMI", check.bimi_status == "FAIL", "BIMI is not configured", "Add a BIMI DNS record and logo.", "LOW")
-            self._process_issue(domain.id, None, "BLACKLIST", check.blacklist_status == "FAIL", "Domain is blacklisted", "Investigate and request delisting.", "CRITICAL")
+            self._process_issue(domain.id, None, "BLACKLIST", check.blacklist_status == "BLACKLISTED", "Domain or IP is blacklisted", "Investigate provider listings and request delisting.", "CRITICAL")
             
             # SMTP Issue logic for receives_inbound_mail
             if domain.receives_inbound_mail:

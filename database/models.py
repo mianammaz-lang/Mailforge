@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text
+from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime, JSON, Text
 from sqlalchemy.orm import relationship
 from database.database import Base
 from datetime import datetime
@@ -62,12 +62,16 @@ class DomainCheck(Base):
     dkim_status = Column(String)
     dmarc_status = Column(String)
     
-    dnssec_status = Column(String)
-    mta_sts_status = Column(String)
-    tls_rpt_status = Column(String)
-    bimi_status = Column(String)
+    dnssec_status = Column(String, default="UNKNOWN")
+    mta_sts_status = Column(String, default="UNKNOWN")
+    tls_rpt_status = Column(String, default="UNKNOWN")
+    bimi_status = Column(String, default="UNKNOWN")
     
     blacklist_status = Column(String)
+    blacklist_details = Column(JSON, nullable=True) # Stores full provider results
+    ip_reputation = Column(JSON, nullable=True)     # Stores AbuseIPDB results per IP
+    resolved_ips = Column(JSON, nullable=True)      # Stores resolved MX and A IPs
+    
     smtp_status = Column(String)
     mx_health = Column(String)
     

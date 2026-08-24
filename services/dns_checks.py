@@ -92,6 +92,81 @@ class LocalDNSChecker:
                 pass
         return "FAIL"
 
+    def check_blacklists(self, domain: str) -> str:
+        # Deprecated: use the new multi-source blacklist check instead
+        return "PASS"
+
+    def resolve_domain_ips(self, domain: str) -> List[str]:
+        ips = set()
+        
+        # Get A records
+        try:
+            a_records = dns.resolver.resolve(domain, 'A', lifetime=3.0)
+            for r in a_records: ips.add(r.to_text())
+        except Exception: pass
+        
+        # Get AAAA records
+        try:
+            aaaa = dns.resolver.resolve(domain, 'AAAA', lifetime=3.0)
+            for r in aaaa: ips.add(r.to_text())
+        except Exception: pass
+        
+        # Get MX records and their A records
+        mx_records = self.get_mx(domain)
+        for mx in mx_records:
+            try:
+                host = mx.split()[-1].strip('.')
+                a_mx = dns.resolver.resolve(host, 'A', lifetime=3.0)
+                for r in a_mx: ips.add(r.to_text())
+            except Exception: pass
+            
+        return list(ips)
+
+    def check_ip_dnsbl(self, ip: str, zone: str, timeout_ms: int = 3000) -> Dict:
+        import time
+        start = time.time()
+        timeout = timeout_ms / 1000.0
+        
+        # Reverse IP
+        parts = ip.split('.')
+        if len(parts) != 4:
+            return {"status": "ERROR", "is_listed": False, "is_confirmed": False, "response_time_ms": 0}
+            
+        reversed_ip = ".".join(reversed(parts))
+        query = f"{reversed_ip}.{zone}"
+        
+        try:
+            answers = dns.resolver.resolve(query, 'A', lifetime=timeout)
+            if answers:
+                return {"status": "LISTED", "is_listed": True, "is_confirmed": True, "response_time_ms": int((time.time()-start)*1000)}
+        except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+            return {"status": "CLEAN", "is_listed": False, "is_confirmed": False, "response_time_ms": int((time.time()-start)*1000)}
+        except dns.exception.Timeout:
+            return {"status": "TIMEOUT", "is_listed": False, "is_confirmed": False, "response_time_ms": None}
+        except Exception:
+            pass
+            
+        return {"status": "ERROR", "is_listed": False, "is_confirmed": False, "response_time_ms": int((time.time()-start)*1000)}
+
+    def check_domain_dbl(self, domain: str, zone: str, timeout_ms: int = 3000) -> Dict:
+        import time
+        start = time.time()
+        timeout = timeout_ms / 1000.0
+        query = f"{domain}.{zone}"
+        
+        try:
+            answers = dns.resolver.resolve(query, 'A', lifetime=timeout)
+            if answers:
+                return {"status": "LISTED", "is_listed": True, "is_confirmed": True, "response_time_ms": int((time.time()-start)*1000)}
+        except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+            return {"status": "CLEAN", "is_listed": False, "is_confirmed": False, "response_time_ms": int((time.time()-start)*1000)}
+        except dns.exception.Timeout:
+            return {"status": "TIMEOUT", "is_listed": False, "is_confirmed": False, "response_time_ms": None}
+        except Exception:
+            pass
+            
+        return {"status": "ERROR", "is_listed": False, "is_confirmed": False, "response_time_ms": int((time.time()-start)*1000)}
+
     def check_dnssec(self, domain: str) -> str:
         try:
             req = dns.message.make_query(domain, dns.rdatatype.A, want_dnssec=True)

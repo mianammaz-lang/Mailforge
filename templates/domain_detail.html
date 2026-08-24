@@ -155,18 +155,40 @@
     <div class="col-md-6">
         <div class="card h-100">
             <div class="card-header bg-white pb-0 border-0 pt-4">
-                <h5 class="fw-bold"><i class="bi bi-star text-warning me-2"></i> Reputation</h5>
+                <h5 class="fw-bold"><i class="bi bi-star text-warning me-2"></i> Reputation & IP Risk</h5>
             </div>
             <div class="card-body">
                 <ul class="list-group list-group-flush">
                     <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
-                        <span class="fw-medium">Blacklists</span>
+                        <span class="fw-medium">Overall Blacklist</span>
                         {% if check %}
-                        <span class="badge badge-pill badge-{{ check.blacklist_status|lower }}">{{ check.blacklist_status }}</span>
+                        <span class="badge badge-pill badge-{{ check.blacklist_status|lower }}">{{ check.blacklist_status|replace("_", " ") }}</span>
                         {% else %}
                         <span class="badge badge-pill badge-unknown">UNKNOWN</span>
                         {% endif %}
                     </li>
+                    {% if check and check.blacklist_details %}
+                    <li class="list-group-item px-0 pb-3">
+                        <div class="small text-muted mb-2">
+                            Providers checked: <strong>{{ check.blacklist_details.providers_checked }}</strong><br>
+                            Confirmed listings: <strong>{{ check.blacklist_details.confirmed_listings }}</strong><br>
+                            Timeouts: <strong>{{ check.blacklist_details.timeouts }}</strong><br>
+                            Errors: <strong>{{ check.blacklist_details.errors }}</strong>
+                        </div>
+                    </li>
+                    {% endif %}
+                    
+                    {% if check and check.ip_reputation %}
+                        {% for ip_rep in check.ip_reputation %}
+                        <li class="list-group-item px-0">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="fw-medium">AbuseIPDB ({{ ip_rep.ip }})</span>
+                                <span class="badge badge-pill badge-{{ 'low' if ip_rep.risk == 'LOW' else 'medium' if ip_rep.risk == 'MODERATE' else 'high' if ip_rep.risk == 'ELEVATED' else 'critical' }}">{{ ip_rep.risk }} RISK</span>
+                            </div>
+                            <small class="text-muted text-break d-block">Confidence Score: {{ ip_rep.confidence_score }}%</small>
+                        </li>
+                        {% endfor %}
+                    {% else %}
                     <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
                         <span class="fw-medium">SMTP Status</span>
                         {% if check %}
@@ -176,18 +198,63 @@
                         {% endif %}
                     </li>
                     <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
-                        <span class="fw-medium">MX Health</span>
-                        {% if check %}
-                        <span class="badge badge-pill badge-{{ check.mx_health|lower }}">{{ check.mx_health }}</span>
-                        {% else %}
+                        <span class="fw-medium">IP Reputation</span>
                         <span class="badge badge-pill badge-unknown">UNKNOWN</span>
-                        {% endif %}
                     </li>
+                    {% endif %}
                 </ul>
             </div>
         </div>
     </div>
 </div>
+
+{% if check and check.blacklist_details and check.blacklist_details.details %}
+<h4 class="fw-bold mb-3 mt-5">Blacklist Provider Evidence</h4>
+<div class="card shadow-sm border-0 mb-5">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-4">Provider</th>
+                        <th>Type</th>
+                        <th>Status</th>
+                        <th>Listed</th>
+                        <th>Response Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for result in check.blacklist_details.details %}
+                    <tr>
+                        <td class="ps-4">{{ result.provider }} <small class="text-muted ms-2">{{ result.ip or '' }}</small></td>
+                        <td><span class="badge bg-secondary">{{ result.category }}</span></td>
+                        <td>
+                            {% if result.status == 'CLEAN' %}
+                            <span class="text-success fw-medium"><i class="bi bi-check-circle me-1"></i> CLEAN</span>
+                            {% elif result.status == 'LISTED' %}
+                            <span class="text-danger fw-medium"><i class="bi bi-x-circle me-1"></i> LISTED</span>
+                            {% elif result.status == 'TIMEOUT' %}
+                            <span class="text-warning fw-medium"><i class="bi bi-clock me-1"></i> TIMEOUT</span>
+                            {% else %}
+                            <span class="text-muted fw-medium"><i class="bi bi-exclamation-triangle me-1"></i> ERROR</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if result.status == 'TIMEOUT' or result.status == 'ERROR' %}
+                            Unknown
+                            {% else %}
+                            {{ 'Yes' if result.is_listed else 'No' }}
+                            {% endif %}
+                        </td>
+                        <td>{{ result.response_time_ms ~ ' ms' if result.response_time_ms else '—' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
 
 <h4 class="fw-bold mb-3 mt-5">Detected Issues</h4>
 <div class="card shadow-sm border-0">
