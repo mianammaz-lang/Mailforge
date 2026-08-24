@@ -27,6 +27,12 @@ class Mailbox(Base):
     domain_id = Column(Integer, ForeignKey("domains.id"))
     mailforge_id = Column(String, unique=True, index=True, nullable=True)
     email = Column(String, unique=True, index=True)
+    password = Column(String, nullable=True)
+    imap_host = Column(String, nullable=True)
+    imap_port = Column(Integer, nullable=True)
+    smtp_host = Column(String, nullable=True)
+    smtp_port = Column(Integer, nullable=True)
+    warmup_enabled = Column(Boolean, default=False)
     status = Column(String)
     mailforge_status = Column(String)
     health_score = Column(Float, default=0.0)
@@ -74,6 +80,8 @@ class MailboxCheck(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
     
     smtp_connectivity = Column(String)
+    imap_connectivity = Column(String, nullable=True)
+    auth_status = Column(String, nullable=True)
     mailbox_verification = Column(String)
     
     mailbox = relationship("Mailbox", back_populates="checks")
