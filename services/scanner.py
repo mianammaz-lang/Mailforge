@@ -233,9 +233,10 @@ class HealthScanner:
                 new_issue = Issue(domain_id=domain_id, mailbox_id=mailbox_id, issue_type=issue_type, description=description, recommendation=recommendation, severity=severity, status="OPEN", detected_at=datetime.utcnow(), last_seen_at=datetime.utcnow())
                 self.db.add(new_issue)
         else:
-            if existing and existing.status == "OPEN":
-                existing.status = "RESOLVED"
-                existing.resolved_at = datetime.utcnow()
+            open_issues = self.db.query(Issue).filter(Issue.domain_id == domain_id, Issue.mailbox_id == mailbox_id, Issue.issue_type == issue_type, Issue.status == "OPEN").all()
+            for issue in open_issues:
+                issue.status = "RESOLVED"
+                issue.resolved_at = datetime.utcnow()
 
     async def check_all_mailboxes(self):
         self._update_progress(70, "Running authenticated mailbox verifications")
