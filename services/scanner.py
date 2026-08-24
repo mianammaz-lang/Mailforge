@@ -208,10 +208,9 @@ class HealthScanner:
             self._process_issue(domain.id, None, "SPF", check.spf_status == "FAIL", "SPF configuration is missing or invalid", "Configure a valid SPF TXT record for this domain.")
             self._process_issue(domain.id, None, "DKIM", check.dkim_status == "FAIL", "DKIM configuration is missing or invalid", "Configure a valid DKIM TXT record for this domain.")
             self._process_issue(domain.id, None, "DMARC", check.dmarc_status == "FAIL", "DMARC configuration is missing or invalid", "Configure a valid DMARC TXT record for this domain.")
-            self._process_issue(domain.id, None, "DNSSEC", check.dnssec_status == "FAIL", "DNSSEC is not enabled", "Enable DNSSEC with your registrar.", "LOW")
-            self._process_issue(domain.id, None, "MTA-STS", check.mta_sts_status == "FAIL", "MTA-STS policy is missing", "Deploy an MTA-STS policy file and DNS record.", "MEDIUM")
-            self._process_issue(domain.id, None, "TLS-RPT", check.tls_rpt_status == "FAIL", "TLS Reporting is not configured", "Add a TLS-RPT DNS record.", "LOW")
-            self._process_issue(domain.id, None, "BIMI", check.bimi_status == "FAIL", "BIMI is not configured", "Add a BIMI DNS record and logo.", "LOW")
+            # Advanced DNS checks (DNSSEC, MTA-STS, TLS-RPT, BIMI) are intentionally skipped 
+            # for the issue tracker because these are cold-emailing domains and those 
+            # records are overkill / not strictly necessary.
             self._process_issue(domain.id, None, "BLACKLIST", check.blacklist_status == "BLACKLISTED", "Domain or IP is blacklisted", "Investigate provider listings and request delisting.", "CRITICAL")
             
             # SMTP Issue logic for receives_inbound_mail
