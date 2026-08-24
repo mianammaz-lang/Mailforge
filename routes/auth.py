@@ -13,13 +13,20 @@ router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
 @router.get("/login", response_class=HTMLResponse)
-def login_page(request: Request):
+def login_page(request: Request, db: Session = Depends(get_db)):
+    # Initialize admin on Vercel where lifespan events might not fire
+    from services.auth import ensure_admin_exists
+    ensure_admin_exists(db)
+
     if request.cookies.get("session_token"):
         return RedirectResponse(url="/dashboard", status_code=303)
     return templates.TemplateResponse("login.html", {"request": request, "error": None})
 
 @router.post("/login")
 def login(request: Request, response: Response, email: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
+    from services.auth import ensure_admin_exists
+    ensure_admin_exists(db)
+
     user = db.query(User).filter(User.email == email).first()
     if not user or not verify_password(password, user.password_hash):
         return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid email or password."})
