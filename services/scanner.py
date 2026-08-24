@@ -314,18 +314,18 @@ class HealthScanner:
         self._update_progress(85, "Running Instantly automated test")
         if self.instantly.available:
             result = await self.instantly.run_automated_inbox_test()
-            if result.get("status") == "COMPLETED":
-                stats = result.get("stats", {})
-                t = InstantlyTest(
-                    test_id=result.get("test_id"),
-                    scan_id=self.scan_id,
-                    status="COMPLETED",
-                    inbox_percentage=stats.get("inbox", 0),
-                    spam_percentage=stats.get("spam", 0),
-                    missing_percentage=stats.get("missing", 0)
-                )
-                self.db.add(t)
-                self.db.commit()
+            stats = result.get("stats", {})
+            t = InstantlyTest(
+                test_id=result.get("test_id", "none"),
+                scan_id=self.scan_id,
+                status=result.get("status", "FAILED"),
+                inbox_percentage=stats.get("inbox", 0),
+                spam_percentage=stats.get("spam", 0),
+                missing_percentage=stats.get("missing", 0),
+                raw_results=result.get("error", None)
+            )
+            self.db.add(t)
+            self.db.commit()
 
     def _resolve_issue(self, domain_id, mailbox_id, issue_type):
         existing = self.db.query(Issue).filter(Issue.domain_id == domain_id, Issue.mailbox_id == mailbox_id, Issue.issue_type == issue_type, Issue.status == "OPEN").first()

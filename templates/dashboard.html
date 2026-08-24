@@ -67,15 +67,19 @@
     </div>
 </div>
 
-{% if instantly_test %}
 <div class="row mb-4">
     <div class="col-12">
         <div class="card bg-white border-0 shadow-sm">
             <div class="card-header bg-white border-bottom pt-3 pb-2 d-flex justify-content-between align-items-center">
                 <h5 class="fw-bold mb-0"><i class="bi bi-lightning-charge text-warning me-2"></i> Instantly.ai Inbox Placement</h5>
+                {% if instantly_test %}
                 <span class="badge bg-{{ 'success' if instantly_test.status == 'COMPLETED' else 'secondary' }}">{{ instantly_test.status }}</span>
+                {% else %}
+                <span class="badge bg-secondary">NOT SYNCED</span>
+                {% endif %}
             </div>
             <div class="card-body">
+                {% if instantly_test and instantly_test.status == 'COMPLETED' %}
                 <div class="row text-center">
                     <div class="col-md-4 border-end">
                         <h6 class="text-muted text-uppercase mb-2">Inbox Rate</h6>
@@ -90,11 +94,23 @@
                         <h2 class="mb-0 fw-bold text-warning">{{ instantly_test.missing_percentage|default(0)|round(1) }}%</h2>
                     </div>
                 </div>
+                {% elif instantly_test and instantly_test.status == 'FAILED' %}
+                <div class="text-center py-3">
+                    <i class="bi bi-exclamation-triangle text-warning fs-1 mb-2 d-block"></i>
+                    <h6 class="fw-bold">No Inbox Placement Tests Found</h6>
+                    <p class="text-muted mb-0">You must run an Inbox Placement test in your Instantly dashboard first. Once finished, click "Sync Instantly.ai Inbox Test" from the scan menu.</p>
+                </div>
+                {% else %}
+                <div class="text-center py-3">
+                    <i class="bi bi-info-circle text-muted fs-1 mb-2 d-block"></i>
+                    <h6 class="fw-bold text-muted">No Data Available</h6>
+                    <p class="text-muted mb-0">Run a scan or click "Sync Instantly.ai Inbox Test" from the top menu to pull your latest metrics.</p>
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>
 </div>
-{% endif %}
 
 <div class="row mb-4">
     <div class="col-md-6">
