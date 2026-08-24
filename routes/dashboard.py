@@ -28,6 +28,9 @@ def read_dashboard(request: Request, db: Session = Depends(get_db)):
     snapshot = db.query(HealthSnapshot).order_by(HealthSnapshot.timestamp.desc()).first()
     overall_health = snapshot.overall_score if snapshot else 0.0
 
+    from database.models import InstantlyTest
+    instantly_test = db.query(InstantlyTest).order_by(InstantlyTest.created_at.desc()).first()
+
     domains = db.query(Domain).limit(10).all()
     mailboxes = db.query(Mailbox).limit(10).all()
 
@@ -46,6 +49,7 @@ def read_dashboard(request: Request, db: Session = Depends(get_db)):
         "campaign_ready": campaign_ready,
         "critical_issues": critical_issues,
         "overall_health": round(overall_health, 1),
+        "instantly_test": instantly_test,
         "domains": domains,
         "mailboxes": mailboxes,
         "active_page": "dashboard"

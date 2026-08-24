@@ -67,6 +67,35 @@
     </div>
 </div>
 
+{% if instantly_test %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card bg-white border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom pt-3 pb-2 d-flex justify-content-between align-items-center">
+                <h5 class="fw-bold mb-0"><i class="bi bi-lightning-charge text-warning me-2"></i> Instantly.ai Inbox Placement</h5>
+                <span class="badge bg-{{ 'success' if instantly_test.status == 'COMPLETED' else 'secondary' }}">{{ instantly_test.status }}</span>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-4 border-end">
+                        <h6 class="text-muted text-uppercase mb-2">Inbox Rate</h6>
+                        <h2 class="mb-0 fw-bold text-success">{{ instantly_test.inbox_percentage|default(0)|round(1) }}%</h2>
+                    </div>
+                    <div class="col-md-4 border-end">
+                        <h6 class="text-muted text-uppercase mb-2">Spam Rate</h6>
+                        <h2 class="mb-0 fw-bold text-danger">{{ instantly_test.spam_percentage|default(0)|round(1) }}%</h2>
+                    </div>
+                    <div class="col-md-4">
+                        <h6 class="text-muted text-uppercase mb-2">Missing/Bounced</h6>
+                        <h2 class="mb-0 fw-bold text-warning">{{ instantly_test.missing_percentage|default(0)|round(1) }}%</h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <div class="row mb-4">
     <div class="col-md-6">
         <div class="card h-100">

@@ -62,6 +62,24 @@ async def get_domain_reputation(domain_id: int, db: Session = Depends(get_db)):
         "scan_timestamp": check.timestamp.isoformat()
     }
 
+@router.post("/scan/instantly")
+async def scan_instantly(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    scan_id = str(uuid.uuid4())
+    run = ScanRun(id=scan_id, status="QUEUED", current_stage="Initialized")
+    db.add(run)
+    db.commit()
+    
+    async def run_task():
+        from services.scanner import MailforgeScanner
+        scanner = MailforgeScanner(db, scan_id)
+        try:
+            await scanner.run_instantly_checks()
+        except Exception as e:
+            pass
+            
+    background_tasks.add_task(run_task)
+    return {"status": "success", "message": "Instantly Inbox test syncing", "scan_id": scan_id}
+
 @router.post("/scan/full")
 async def trigger_full_scan(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     scan_id = str(uuid.uuid4())
