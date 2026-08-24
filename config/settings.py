@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     
     # Auth
     ADMIN_EMAIL: str = "Admin@alsharqi.co"
-    ADMIN_PASSWORD: Optional[str] = None
+    ADMIN_PASSWORD: str = "ammaz@0346"
     SESSION_SECRET: str = "super-secret-default-key-change-in-production"
     CRON_SECRET: str = "default-cron-secret"
     
