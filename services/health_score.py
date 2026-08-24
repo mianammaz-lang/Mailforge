@@ -2,15 +2,12 @@ from typing import Dict
 
 def calculate_domain_score(checks: Dict) -> float:
     weights = {
-        "mx_status": 10,
-        "spf_status": 15,
-        "dkim_status": 15,
+        "mx_status": 20,
+        "spf_status": 20,
+        "dkim_status": 20,
         "dmarc_status": 15,
         "blacklist_status": 15,
-        "dnssec_status": 10,
-        "mta_sts_status": 5,
         "tls_status": 5,
-        "bimi_status": 5,
         "smtp_status": 5
     }
     
@@ -21,7 +18,7 @@ def calculate_domain_score(checks: Dict) -> float:
         status = checks.get(key, "UNKNOWN")
         if status != "UNKNOWN":
             total_weight += weight
-            if status == "PASS":
+            if status in ["PASS", "CLEAN", "CLEAN_WITH_TIMEOUT"]:
                 earned += weight
             elif status == "WARN":
                 earned += weight * 0.5
