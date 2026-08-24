@@ -231,6 +231,8 @@
                         <td>
                             {% if result.status == 'CLEAN' %}
                             <span class="text-success fw-medium"><i class="bi bi-check-circle me-1"></i> CLEAN</span>
+                            {% elif result.status == 'WARNING' %}
+                            <span class="text-warning fw-medium"><i class="bi bi-exclamation-triangle me-1"></i> WARNING (PBL)</span>
                             {% elif result.status == 'LISTED' %}
                             <span class="text-danger fw-medium"><i class="bi bi-x-circle me-1"></i> LISTED</span>
                             {% elif result.status == 'TIMEOUT' %}
@@ -240,7 +242,7 @@
                             {% endif %}
                         </td>
                         <td>
-                            {% if result.status == 'TIMEOUT' or result.status == 'ERROR' %}
+                            {% if result.status == 'TIMEOUT' or result.status == 'ERROR' or result.status == 'WARNING' %}
                             Unknown
                             {% else %}
                             {{ 'Yes' if result.is_listed else 'No' }}

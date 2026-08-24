@@ -99,18 +99,6 @@ class LocalDNSChecker:
     def resolve_domain_ips(self, domain: str) -> List[str]:
         ips = set()
         
-        # Get A records
-        try:
-            a_records = dns.resolver.resolve(domain, 'A', lifetime=3.0)
-            for r in a_records: ips.add(r.to_text())
-        except Exception: pass
-        
-        # Get AAAA records
-        try:
-            aaaa = dns.resolver.resolve(domain, 'AAAA', lifetime=3.0)
-            for r in aaaa: ips.add(r.to_text())
-        except Exception: pass
-        
         # Get MX records and their A records
         mx_records = self.get_mx(domain)
         for mx in mx_records:
@@ -118,6 +106,18 @@ class LocalDNSChecker:
                 host = mx.split()[-1].strip('.')
                 a_mx = dns.resolver.resolve(host, 'A', lifetime=3.0)
                 for r in a_mx: ips.add(r.to_text())
+            except Exception: pass
+            
+        # Only fallback to apex A/AAAA if no MX exists (implicit MX)
+        if not ips:
+            try:
+                a_records = dns.resolver.resolve(domain, 'A', lifetime=3.0)
+                for r in a_records: ips.add(r.to_text())
+            except Exception: pass
+            
+            try:
+                aaaa = dns.resolver.resolve(domain, 'AAAA', lifetime=3.0)
+                for r in aaaa: ips.add(r.to_text())
             except Exception: pass
             
         return list(ips)
@@ -138,6 +138,12 @@ class LocalDNSChecker:
         try:
             answers = dns.resolver.resolve(query, 'A', lifetime=timeout)
             if answers:
+                returned_ip = answers[0].to_text()
+                # Spamhaus PBL (127.0.0.10, 127.0.0.11) is a Policy Block List, not a Spam listing.
+                # It means the IP is in a dynamic/residential range or hasn't requested dedicated mail server status.
+                if "spamhaus" in zone and returned_ip in ["127.0.0.10", "127.0.0.11"]:
+                    return {"status": "WARNING", "is_listed": False, "is_confirmed": False, "response_time_ms": int((time.time()-start)*1000), "note": "PBL (Policy Block List)"}
+                
                 return {"status": "LISTED", "is_listed": True, "is_confirmed": True, "response_time_ms": int((time.time()-start)*1000)}
         except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
             return {"status": "CLEAN", "is_listed": False, "is_confirmed": False, "response_time_ms": int((time.time()-start)*1000)}

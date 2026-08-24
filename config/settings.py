@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     EMAILPROBER_API_KEY: Optional[str] = None
     OPENROUTER_API_KEY: Optional[str] = None
     ABUSEIPDB_API_KEY: Optional[str] = None
+    GEMINI_API_KEY: Optional[str] = None
     OPENROUTER_MODEL: str = "meta-llama/llama-3.1-8b-instruct:free"
     
     # Auth
