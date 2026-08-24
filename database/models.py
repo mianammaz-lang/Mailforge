@@ -14,7 +14,7 @@ class Domain(Base):
     campaign_ready = Column(Boolean, default=False)
     registrar = Column(String, nullable=True)
     expiration = Column(DateTime, nullable=True)
-    receives_inbound_mail = Column(Boolean, default=True)
+    receives_inbound_mail = Column(Boolean, default=False)
     last_checked = Column(DateTime, default=datetime.utcnow)
     
     mailboxes = relationship("Mailbox", back_populates="domain")

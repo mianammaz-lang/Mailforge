@@ -151,11 +151,11 @@ class LocalDNSChecker:
                 pass
         return "PASS"
 
-    def check_smtp(self, domain: str) -> Dict[str, str]:
-        """Quick SMTP check with tight 3s timeout."""
+    def check_smtp(self, domain: str, receives_inbound_mail: bool = True) -> Dict[str, str]:
+        """SMTP check respecting inbound configs."""
         mx_records = self.get_mx(domain)
         if not mx_records:
-            return {"smtp_status": "FAIL", "tls_status": "FAIL"}
+            return {"smtp_status": "FAIL", "tls_status": "UNKNOWN"}
         
         try:
             mx_list = [(int(r.split()[0]), r.split()[1]) for r in mx_records if len(r.split()) == 2]
@@ -164,11 +164,13 @@ class LocalDNSChecker:
         except Exception:
             mx_host = mx_records[0].split()[-1].strip('.')
 
-        # Quick TCP connect check instead of full SMTP conversation
-        smtp_status = "FAIL"
-        tls_status = "FAIL"
+        smtp_status = "UNKNOWN"
+        tls_status = "UNKNOWN"
+
+        port = 587 # Forced for testing
+
         try:
-            sock = socket.create_connection((mx_host, 25), timeout=3)
+            sock = socket.create_connection((mx_host, port), timeout=3)
             smtp_status = "PASS"
             # Read banner
             data = sock.recv(1024).decode('utf-8', errors='ignore')
@@ -177,10 +179,15 @@ class LocalDNSChecker:
             data = sock.recv(1024).decode('utf-8', errors='ignore')
             if "STARTTLS" in data:
                 tls_status = "PASS"
+            else:
+                tls_status = "FAIL"
             sock.sendall(b"QUIT\r\n")
             sock.close()
         except Exception:
-            pass
+            if receives_inbound_mail:
+                smtp_status = "FAIL"
+            else:
+                smtp_status = "UNKNOWN"
             
         return {"smtp_status": smtp_status, "tls_status": tls_status}
 

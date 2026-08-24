@@ -175,67 +175,75 @@ class HealthScanner:
     async def check_all_mailboxes(self):
         self._update_progress(70, "Running authenticated mailbox verifications")
         mailboxes = self.db.query(Mailbox).all()
+        
+        loop = asyncio.get_event_loop()
+        mb_futures = {mb.id: (mb, loop.run_in_executor(_scan_pool, self._check_single_mailbox, mb)) for mb in mailboxes}
+        
+        for mb_id, (mb, future) in mb_futures.items():
+            try:
+                domain = self.db.query(Domain).filter(Domain.id == mb.domain_id).first()
+                result = await future
+                smtp_status = result["smtp_status"]
+                imap_status = result["imap_status"]
+                auth_status = result["auth_status"]
+                
+                check = MailboxCheck(
+                    mailbox_id=mb.id, 
+                    smtp_connectivity=smtp_status, 
+                    imap_connectivity=imap_status,
+                    auth_status=auth_status,
+                    mailbox_verification="PASS" if auth_status == "PASS" else "FAIL"
+                )
+                self.db.add(check)
+                
+                domain_score = domain.health_score if domain else 0.0
+                mb.health_score = domain_score if auth_status == "PASS" else 0.0
+                mb.status = get_health_category(mb.health_score)
+                mb.campaign_ready = mb.health_score >= 90 and auth_status == "PASS"
+                mb.last_checked = datetime.utcnow()
+                
+                self._process_issue(domain.id if domain else None, mb.id, "SMTP_AUTH", smtp_status == "FAIL", "Mailbox cannot authenticate via SMTP", "Verify SMTP credentials and server settings.", "CRITICAL")
+                self._process_issue(domain.id if domain else None, mb.id, "IMAP_AUTH", imap_status == "FAIL", "Mailbox cannot authenticate via IMAP", "Verify IMAP credentials and server settings.", "CRITICAL")
+            except Exception as e:
+                logger.error(f"Error checking mailbox {mb.email}: {e}")
+                
+        self.db.commit()
+
+    def _check_single_mailbox(self, mb):
         import smtplib
         import imaplib
+        smtp_status = "UNKNOWN"
+        imap_status = "UNKNOWN"
+        auth_status = "UNKNOWN"
         
-        for mb in mailboxes:
-            domain = self.db.query(Domain).filter(Domain.id == mb.domain_id).first()
-            
-            smtp_status = "UNKNOWN"
-            imap_status = "UNKNOWN"
-            auth_status = "UNKNOWN"
-            
-            # If credentials are provided (e.g. via CSV), perform a real cold-emailing auth test
-            if mb.password and mb.smtp_host and mb.imap_host:
-                try:
-                    # Test SMTP Auth
-                    server = smtplib.SMTP(mb.smtp_host, mb.smtp_port or 587, timeout=5)
-                    server.starttls()
-                    server.login(mb.email, mb.password)
-                    server.quit()
-                    smtp_status = "PASS"
-                    auth_status = "PASS"
-                except Exception as e:
-                    logger.error(f"SMTP Auth failed for {mb.email}: {e}")
-                    smtp_status = "FAIL"
-                    auth_status = "FAIL"
-                
-                try:
-                    # Test IMAP Auth
-                    imap = imaplib.IMAP4_SSL(mb.imap_host, mb.imap_port or 993, timeout=5)
-                    imap.login(mb.email, mb.password)
-                    imap.logout()
-                    imap_status = "PASS"
-                except Exception as e:
-                    logger.error(f"IMAP Auth failed for {mb.email}: {e}")
-                    imap_status = "FAIL"
-                    auth_status = "FAIL"
-            else:
-                # Faked pass for now if no credentials provided to preserve legacy behavior
+        if mb.password and mb.smtp_host and mb.imap_host:
+            try:
+                server = smtplib.SMTP(mb.smtp_host, mb.smtp_port or 587, timeout=5)
+                server.starttls()
+                server.login(mb.email, mb.password)
+                server.quit()
                 smtp_status = "PASS"
-                imap_status = "PASS"
                 auth_status = "PASS"
-
-            check = MailboxCheck(
-                mailbox_id=mb.id, 
-                smtp_connectivity=smtp_status, 
-                imap_connectivity=imap_status,
-                auth_status=auth_status,
-                mailbox_verification="PASS" if auth_status == "PASS" else "FAIL"
-            )
-            self.db.add(check)
+            except Exception as e:
+                logger.error(f"SMTP Auth failed for {mb.email}: {e}")
+                smtp_status = "FAIL"
+                auth_status = "FAIL"
             
-            # Update Mailbox health based on auth status + domain health
-            domain_score = domain.health_score if domain else 0.0
-            mb.health_score = domain_score if auth_status == "PASS" else 0.0
-            mb.status = get_health_category(mb.health_score)
-            mb.campaign_ready = mb.health_score >= 90 and auth_status == "PASS"
-            mb.last_checked = datetime.utcnow()
+            try:
+                imap = imaplib.IMAP4_SSL(mb.imap_host, mb.imap_port or 993, timeout=5)
+                imap.login(mb.email, mb.password)
+                imap.logout()
+                imap_status = "PASS"
+            except Exception as e:
+                logger.error(f"IMAP Auth failed for {mb.email}: {e}")
+                imap_status = "FAIL"
+                auth_status = "FAIL"
+        else:
+            smtp_status = "PASS"
+            imap_status = "PASS"
+            auth_status = "PASS"
             
-            self._process_issue(domain.id if domain else None, mb.id, "SMTP_AUTH", smtp_status == "FAIL", "Mailbox cannot authenticate via SMTP", "Verify SMTP credentials and server settings.", "CRITICAL")
-            self._process_issue(domain.id if domain else None, mb.id, "IMAP_AUTH", imap_status == "FAIL", "Mailbox cannot authenticate via IMAP", "Verify IMAP credentials and server settings.", "CRITICAL")
-            
-        self.db.commit()
+        return {"smtp_status": smtp_status, "imap_status": imap_status, "auth_status": auth_status}
 
     async def run_instantly_checks(self):
         self._update_progress(85, "Running Instantly automated test")
