@@ -17,8 +17,8 @@ class Settings(BaseSettings):
     SESSION_SECRET: str = "super-secret-default-key-change-in-production"
     CRON_SECRET: str = "default-cron-secret"
     
-    # DB
-    DATABASE_URL: str = "sqlite:///./mailforge_health.db"
+    # DB - Hardcoded to Neon Postgres to ensure Vercel and Local use the exact same persistent database
+    DATABASE_URL: str = "postgresql://neondb_owner:npg_2NbgMQ5JHXaw@ep-snowy-thunder-axdhquzw.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require"
     
     SCAN_INTERVAL_HOURS: int = 24
     APP_HOST: str = "127.0.0.1"
@@ -28,11 +28,5 @@ class Settings(BaseSettings):
         env_file = ".env"
 
 settings = Settings()
-
-# Do NOT silently switch to /tmp/ on Vercel unless explicitly requested
-# In Vercel, the DATABASE_URL environment variable should point to a real Postgres DB.
-if os.environ.get("VERCEL") == "1" and "sqlite" in settings.DATABASE_URL:
-    # Fallback for preview deployments, but warns the user
-    settings.DATABASE_URL = "sqlite:////tmp/mailforge_health.db"
 
 
