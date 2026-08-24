@@ -100,6 +100,12 @@
                     <h6 class="fw-bold">No Inbox Placement Tests Found</h6>
                     <p class="text-muted mb-0">You must run an Inbox Placement test in your Instantly dashboard first. Once finished, click "Sync Instantly.ai Inbox Test" from the scan menu.</p>
                 </div>
+                {% elif instantly_test and instantly_test.status == 'PROCESSING' %}
+                <div class="text-center py-3">
+                    <i class="bi bi-arrow-repeat text-primary fs-1 mb-2 d-block fa-spin"></i>
+                    <h6 class="fw-bold text-primary">Test in Progress</h6>
+                    <p class="text-muted mb-0">An Inbox Placement test is currently processing. Analytics will be available shortly.</p>
+                </div>
                 {% else %}
                 <div class="text-center py-3">
                     <i class="bi bi-info-circle text-muted fs-1 mb-2 d-block"></i>
